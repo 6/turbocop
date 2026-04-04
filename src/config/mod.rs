@@ -161,14 +161,6 @@ pub struct CopFilterSet {
     /// 14-digit run that is <= this value have all offenses suppressed.
     /// Implements rubocop-rails' MigrationFileSkippable behavior.
     migrated_schema_version: Option<String>,
-    /// CLI target directories (scan roots) for Include pattern relativization.
-    /// Per-cop Include patterns (e.g., `spec/**/*.rb` from rubocop-rails) are
-    /// repo-relative. When base_dir != repo root (e.g., non-dotfile config with
-    /// CWD=/tmp), file paths can't be relativized to match. Scan roots provide
-    /// a fallback: strip the scan target prefix to get a repo-relative path.
-    /// Used ONLY for Include matching — NOT for Exclude (see comment at
-    /// `is_globally_excluded` for why scan_roots must not affect Exclude).
-    scan_roots: Vec<PathBuf>,
 }
 
 impl CopFilterSet {
@@ -325,30 +317,21 @@ impl CopFilterSet {
         // that don't start with `./` won't match.
         let stripped = path.strip_prefix("./").ok();
 
-        // Scan-root relativization for Include patterns ONLY.
-        // Per-cop Include patterns (e.g., `spec/**/*.rb` from rubocop-rails)
-        // are repo-relative. When base_dir != repo root (e.g., non-dotfile
-        // config with CWD=/tmp), strip_prefix(base_dir) can't produce the
-        // right relative path. Try each scan root (CLI target directory) as
-        // a fallback. NOT used for Exclude — see comment at is_globally_excluded.
+        // NOTE: No scan-root relativization for Include patterns.
         //
-        // Only use this fallback when the resulting path has at least one
-        // directory component (e.g., `spec/foo.rb`). Bare filenames at the
-        // scan root (e.g., `Rakefile`) must NOT match via this fallback —
-        // RuboCop only matches bare-name Include patterns (like rubocop-rake's
-        // `Rakefile`) when base_dir is the repo root, which requires CWD to
-        // be the project directory for non-.rubocop configs. In normal usage
-        // (CWD = project root), bare filenames already match via rel_path or
-        // rel_to_base, so this restriction has no effect on end users.
-        let rel_to_scan_root: Option<&Path> = self
-            .scan_roots
-            .iter()
-            .find_map(|sr| path.strip_prefix(sr).ok())
-            .filter(|rel| {
-                // Require at least one directory component — reject bare filenames.
-                // Path::parent() returns Some("") for bare names like "Rakefile".
-                rel.parent().is_some_and(|p| !p.as_os_str().is_empty())
-            });
+        // RuboCop resolves per-cop Include patterns against base_dir only
+        // (CWD for non-.rubocop configs, config dir for .rubocop configs).
+        // It does NOT have a scan-root fallback. Patterns that don't start
+        // with `**` (e.g., `db/**/*.rb`, `Rakefile`) only match when
+        // base_dir equals the repo root — which requires CWD to be the
+        // project directory for non-.rubocop configs.
+        //
+        // In normal usage (CWD = project root), all Include patterns match
+        // via rel_path (config_dir) or rel_to_base (CWD). Adding scan_roots
+        // would cause nitrocop to fire on files that RuboCop skips when both
+        // tools run from outside the repo (e.g., corpus oracle), creating
+        // false positives for Rake/* cops (`Rakefile`), Rails/Output
+        // (`db/**/*.rb`), and similar non-`**`-prefixed Include patterns.
 
         // Include: file must match on at least one path form.
         // This supports both absolute patterns (/tmp/test/db/**) and
@@ -356,7 +339,6 @@ impl CopFilterSet {
         let included = filter.is_included(path)
             || rel_path.is_some_and(|rel| filter.is_included(rel))
             || rel_to_base.is_some_and(|rel| filter.is_included(rel))
-            || rel_to_scan_root.is_some_and(|rel| filter.is_included(rel))
             || stripped.is_some_and(|s| filter.is_included(s));
         if !included {
             return false;
@@ -2611,7 +2593,6 @@ impl ResolvedConfig {
         registry: &CopRegistry,
         tier_map: &crate::cop::tiers::TierMap,
         preview: bool,
-        scan_roots: &[PathBuf],
     ) -> CopFilterSet {
         // Build global exclude set (globs + regexes)
         let global_exclude_pats: Vec<&str> =
@@ -2840,7 +2821,6 @@ impl ResolvedConfig {
             universal_cop_indices,
             pattern_cop_indices,
             migrated_schema_version: self.migrated_schema_version.clone(),
-            scan_roots: scan_roots.to_vec(),
         }
     }
 
@@ -3549,7 +3529,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         // Glob pattern should work
         assert!(
@@ -3635,7 +3614,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
 
         assert!(
@@ -3673,7 +3651,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
 
         assert!(
@@ -3700,7 +3677,7 @@ mod tests {
         let config = load_config(Some(&dir.join(".rubocop.yml")), None, None).unwrap();
         let registry = crate::cop::registry::CopRegistry::default_registry();
         let tier_map = crate::cop::tiers::TierMap::load();
-        let filters = config.build_cop_filters(&registry, &tier_map, true, &[]);
+        let filters = config.build_cop_filters(&registry, &tier_map, true);
         let index = registry
             .cops()
             .iter()
@@ -4297,7 +4274,7 @@ mod tests {
         // Also verify through build_cop_filters (the production path)
         let registry = crate::cop::registry::CopRegistry::default_registry();
         let tier_map = crate::cop::tiers::TierMap::load();
-        let filters = config.build_cop_filters(&registry, &tier_map, false, &[]);
+        let filters = config.build_cop_filters(&registry, &tier_map, false);
         let rcb_idx = registry
             .cops()
             .iter()
@@ -4704,7 +4681,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         let path = Path::new("bench/repos/mastodon/lib/tasks/emojis.rake");
         assert!(
@@ -4728,7 +4704,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         let path = Path::new("/tmp/test/db/migrate/001_create_users.rb");
         assert!(
@@ -4753,7 +4728,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         let path = Path::new("bench/repos/discourse/spec/models/user_spec.rb");
         assert!(
@@ -4778,7 +4752,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         let path = Path::new("bench/repos/discourse/spec/requests/api/invites_spec.rb");
         assert!(
@@ -4802,7 +4775,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         assert!(filter_set.is_cop_match(0, Path::new("app/models/user.rb")));
         assert!(!filter_set.is_cop_match(0, Path::new("vendor/gems/foo.rb")));
@@ -4822,7 +4794,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         assert!(!filter_set.is_cop_match(0, Path::new("anything.rb")));
     }
@@ -4857,7 +4828,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
 
         // Positive: files under cookbooks/ should be excluded
@@ -4915,7 +4885,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: vec![0],
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
 
         // Cop should match files under lib/ even with absolute excludes present
@@ -4951,7 +4920,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         // File doesn't match Include, but is_cop_excluded only checks Exclude
         assert!(
@@ -4974,7 +4942,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         assert!(
             filter_set.is_cop_excluded(0, Path::new("/project/app/controllers/test.rb")),
@@ -5002,7 +4969,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         // File in sub-config dir: nearest_config_dir is the sub-dir,
         // but root-relative path should still match the Exclude pattern.
@@ -5029,7 +4995,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: Some("19700101000000".to_string()),
-            scan_roots: vec![],
         };
         // SHA hash containing 14-digit run <= 19700101000000 → migrated
         assert!(filter_set.is_migrated_file(Path::new(
@@ -5057,7 +5022,6 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
-            scan_roots: vec![],
         };
         assert!(!no_version.is_migrated_file(Path::new("19700101000000_init.rb")));
     }
@@ -5660,137 +5624,90 @@ mod tests {
     }
 
     #[test]
-    fn scan_root_enables_include_matching() {
-        // When Include patterns exist but file paths have a prefix that
-        // prevents matching via base_dir/config_dir, scan_roots provides
-        // a fallback by relativizing against the CLI target directory.
-        let dir = std::env::temp_dir().join("nitrocop_test_scan_root_include");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-
-        // Create a config with a cop that has Include: spec/**/*.rb
-        let path = write_config(
-            &dir,
-            "Style/FrozenStringLiteralComment:\n  Include:\n    - 'spec/**/*.rb'\n",
-        );
-        let config = load_config(Some(&path), None, None).unwrap();
-        let registry = crate::cop::registry::CopRegistry::default_registry();
-        let tier_map = crate::cop::tiers::TierMap::load();
-
-        let scan_root = PathBuf::from("/fake/repo");
-
-        // Without scan_roots: file outside base_dir/config_dir won't match Include
-        let filters_no_scan = config.build_cop_filters(&registry, &tier_map, true, &[]);
-        let idx = registry
-            .cops()
-            .iter()
-            .position(|c| c.name() == "Style/FrozenStringLiteralComment")
-            .unwrap();
-        assert!(
-            !filters_no_scan.is_cop_match(idx, Path::new("/fake/repo/spec/foo.rb")),
-            "Without scan_roots, Include pattern should not match"
-        );
-
-        // With scan_roots: scan_root relativization enables matching
-        let filters_with_scan =
-            config.build_cop_filters(&registry, &tier_map, true, &[scan_root.clone()]);
-        assert!(
-            filters_with_scan.is_cop_match(idx, Path::new("/fake/repo/spec/foo.rb")),
-            "With scan_roots, spec/foo.rb should match Include spec/**/*.rb"
-        );
-        assert!(
-            !filters_with_scan.is_cop_match(idx, Path::new("/fake/repo/app/foo.rb")),
-            "app/foo.rb should NOT match Include spec/**/*.rb even with scan_roots"
-        );
-
-        fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn scan_root_skips_bare_filenames() {
-        // Bare filenames (e.g., `Rakefile`) at the scan root should NOT match
-        // via scan_root relativization. RuboCop only matches bare-name Include
-        // patterns when base_dir is the repo root (CWD = project directory for
-        // non-.rubocop configs). The scan_root fallback must not bypass this.
+    fn include_without_base_dir_match_does_not_fire() {
+        // When the config is external (base_dir/config_dir don't cover the
+        // target files), non-**-prefixed Include patterns like `spec/**/*.rb`
+        // or bare `Rakefile` should NOT match. This matches RuboCop's behavior:
+        // it resolves Include patterns against base_dir (CWD for non-.rubocop
+        // configs), with no scan-root fallback.
         //
-        // In normal usage (CWD = project root), bare filenames match through
-        // rel_path or rel_to_base instead.
-        let dir = std::env::temp_dir().join("nitrocop_test_scan_root_bare");
+        // In normal usage (CWD = project root), the match happens via rel_path
+        // or rel_to_base. The external-config scenario only matters for corpus
+        // oracle comparisons.
+        let dir = std::env::temp_dir().join("nitrocop_test_no_scan_root_include");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        // Create a config with Include: ['Rakefile', '**/*.rake'] — mirrors
-        // rubocop-rake's department-level Include pattern.
+        // Config with Include patterns that don't start with **
         let path = write_config(
             &dir,
-            "Style/FrozenStringLiteralComment:\n  Include:\n    - 'Rakefile'\n    - '**/*.rake'\n",
+            "Style/FrozenStringLiteralComment:\n  Include:\n    - 'spec/**/*.rb'\n    - 'Rakefile'\n    - 'db/**/*.rb'\n",
         );
         let config = load_config(Some(&path), None, None).unwrap();
         let registry = crate::cop::registry::CopRegistry::default_registry();
         let tier_map = crate::cop::tiers::TierMap::load();
 
-        let scan_root = PathBuf::from("/fake/repo");
-        let filters = config.build_cop_filters(&registry, &tier_map, true, &[scan_root]);
+        let filters = config.build_cop_filters(&registry, &tier_map, true);
         let idx = registry
             .cops()
             .iter()
             .position(|c| c.name() == "Style/FrozenStringLiteralComment")
             .unwrap();
 
-        // Bare "Rakefile" at repo root should NOT match via scan_root —
-        // the scan_root fallback only applies to paths with directory components.
+        // Files under an external path should NOT match non-**-prefixed patterns
+        assert!(
+            !filters.is_cop_match(idx, Path::new("/fake/repo/spec/foo.rb")),
+            "spec/foo.rb should not match when base_dir != repo root"
+        );
         assert!(
             !filters.is_cop_match(idx, Path::new("/fake/repo/Rakefile")),
-            "Bare Rakefile should NOT match via scan_root relativization"
+            "Rakefile should not match when base_dir != repo root"
         );
-
-        // Nested .rake files should still match via scan_root (has directory component)
         assert!(
-            filters.is_cop_match(idx, Path::new("/fake/repo/lib/tasks/foo.rake")),
-            "lib/tasks/foo.rake should match **/*.rake via scan_root"
-        );
-
-        // A Rakefile in a subdirectory would produce "subdir/Rakefile" which
-        // has a directory component — but the Include pattern is bare "Rakefile",
-        // not "subdir/Rakefile", so it still shouldn't match.
-        assert!(
-            !filters.is_cop_match(idx, Path::new("/fake/repo/subdir/Rakefile")),
-            "subdir/Rakefile should NOT match bare Rakefile Include pattern"
+            !filters.is_cop_match(idx, Path::new("/fake/repo/db/seeds.rb")),
+            "db/seeds.rb should not match when base_dir != repo root"
         );
 
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn scan_root_does_not_affect_exclude() {
-        // Scan roots must NOT be used for Exclude matching — only Include.
-        // See comment at is_globally_excluded for why.
-        let dir = std::env::temp_dir().join("nitrocop_test_scan_root_exclude");
+    fn include_star_star_prefix_matches_any_path() {
+        // Include patterns starting with ** (e.g., `**/app/**/*.rb`) should
+        // match files regardless of path prefix — they work through glob
+        // matching on the absolute path.
+        let dir = std::env::temp_dir().join("nitrocop_test_star_star_include");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        // Create a cop with Exclude: vendor/**/*
         let path = write_config(
             &dir,
-            "Style/FrozenStringLiteralComment:\n  Exclude:\n    - 'vendor/**/*'\n",
+            "Style/FrozenStringLiteralComment:\n  Include:\n    - '**/spec/**/*.rb'\n    - '**/*.rake'\n",
         );
         let config = load_config(Some(&path), None, None).unwrap();
         let registry = crate::cop::registry::CopRegistry::default_registry();
         let tier_map = crate::cop::tiers::TierMap::load();
 
-        let scan_root = PathBuf::from("/fake/repo");
-        let filters = config.build_cop_filters(&registry, &tier_map, true, &[scan_root]);
+        let filters = config.build_cop_filters(&registry, &tier_map, true);
         let idx = registry
             .cops()
             .iter()
             .position(|c| c.name() == "Style/FrozenStringLiteralComment")
             .unwrap();
 
-        // vendor/foo.rb relative to scan_root should NOT be excluded,
-        // because Exclude does not use scan_root relativization
+        // **-prefixed patterns match through absolute path glob matching
         assert!(
-            filters.is_cop_match(idx, Path::new("/fake/repo/vendor/foo.rb")),
-            "Exclude should NOT use scan_root — vendor/foo.rb should still match"
+            filters.is_cop_match(idx, Path::new("/fake/repo/spec/foo.rb")),
+            "**/spec/**/*.rb should match via absolute path glob"
+        );
+        assert!(
+            filters.is_cop_match(idx, Path::new("/fake/repo/lib/tasks/foo.rake")),
+            "**/*.rake should match via absolute path glob"
+        );
+        // Non-matching patterns should still reject
+        assert!(
+            !filters.is_cop_match(idx, Path::new("/fake/repo/app/foo.rb")),
+            "app/foo.rb should not match **/spec/**/*.rb or **/*.rake"
         );
 
         fs::remove_dir_all(&dir).ok();

@@ -134,7 +134,7 @@ pub fn lint_source(
     tier_map: &TierMap,
     allowlist: &crate::cop::autocorrect_allowlist::AutocorrectAllowlist,
 ) -> LintResult {
-    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview, &args.paths);
+    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
     let (diagnostics, _corrected_bytes, corrected_count) = lint_source_inner(
@@ -175,7 +175,7 @@ pub fn run_linter(
     crate::schema::init(config.config_dir());
 
     // Build cop filters once before the parallel loop
-    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview, &args.paths);
+    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
     // Pre-compute base cop configs once (avoids HashMap clone per cop per file)
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
@@ -909,7 +909,7 @@ fn emit_syntax_diagnostics(
     };
     let owned_filters;
     let active_filters = if let Some(ref file_config) = effective_config {
-        owned_filters = file_config.build_cop_filters(registry, tier_map, args.preview, &[]);
+        owned_filters = file_config.build_cop_filters(registry, tier_map, args.preview);
         &owned_filters
     } else {
         cop_filters
@@ -991,7 +991,7 @@ pub(crate) fn emit_invalid_utf8_diagnostic(
     };
     let owned_filters;
     let active_filters = if let Some(ref file_config) = effective_config {
-        owned_filters = file_config.build_cop_filters(registry, tier_map, args.preview, &[]);
+        owned_filters = file_config.build_cop_filters(registry, tier_map, args.preview);
         &owned_filters
     } else {
         cop_filters
@@ -1100,7 +1100,7 @@ fn lint_source_once(
     let owned_filters;
     let owned_base_configs;
     let (active_filters, active_base_configs) = if let Some(ref file_config) = effective_config {
-        owned_filters = file_config.build_cop_filters(registry, tier_map, args.preview, &[]);
+        owned_filters = file_config.build_cop_filters(registry, tier_map, args.preview);
         owned_base_configs = file_config.precompute_cop_configs(registry);
         (&owned_filters, owned_base_configs.as_slice())
     } else {
