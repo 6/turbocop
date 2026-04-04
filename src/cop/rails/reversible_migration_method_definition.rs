@@ -14,13 +14,14 @@ const MSG: &str =
 /// - Migration classes with no valid instance `change`/`up`/`down` methods at
 ///   all were skipped because the old logic only reported when exactly one of
 ///   `up` or `down` was present.
-/// - `::ActiveRecord::Migration[...]` superclasses were ignored by the raw text
-///   check, causing additional misses.
+/// - The raw text superclass check overmatched bare `ActiveRecord::Migration`
+///   and undermatched `::ActiveRecord::Migration[...]`, causing a large FP wave
+///   and additional misses.
 ///
-/// Fix: accept both `ActiveRecord::Migration` and `::ActiveRecord::Migration`
-/// superclasses, count only receiver-less instance method definitions, and
-/// register an offense unless the class defines `change` or both `up` and
-/// `down`.
+/// Fix: match RuboCop's versioned migration superclass shape
+/// (`ActiveRecord::Migration[6.0]` or `::ActiveRecord::Migration[6.0]`), count
+/// only receiver-less instance method definitions, and register an offense
+/// unless the class defines `change` or both `up` and `down`.
 pub struct ReversibleMigrationMethodDefinition;
 
 #[derive(Default)]
@@ -51,11 +52,43 @@ impl<'pr> Visit<'pr> for MigrationMethodCollector {
     }
 }
 
-fn is_migration_superclass(source: &SourceFile, node: ruby_prism::Node<'_>) -> bool {
-    let location = node.location();
-    let text = &source.as_bytes()[location.start_offset()..location.end_offset()];
+fn is_active_record_constant(node: ruby_prism::Node<'_>) -> bool {
+    node.as_constant_read_node()
+        .is_some_and(|constant| constant.name().as_slice() == b"ActiveRecord")
+        || node.as_constant_path_node().is_some_and(|constant_path| {
+            constant_path.parent().is_none()
+                && constant_path
+                    .name()
+                    .is_some_and(|name| name.as_slice() == b"ActiveRecord")
+        })
+}
 
-    text.starts_with(b"ActiveRecord::Migration") || text.starts_with(b"::ActiveRecord::Migration")
+fn is_active_record_migration(receiver: ruby_prism::Node<'_>) -> bool {
+    receiver
+        .as_constant_path_node()
+        .is_some_and(|constant_path| {
+            constant_path
+                .name()
+                .is_some_and(|name| name.as_slice() == b"Migration")
+                && constant_path
+                    .parent()
+                    .is_some_and(is_active_record_constant)
+        })
+}
+
+fn is_migration_superclass(node: ruby_prism::Node<'_>) -> bool {
+    node.as_call_node().is_some_and(|call| {
+        call.name().as_slice() == b"[]"
+            && call.arguments().is_some_and(|arguments| {
+                let arguments = arguments.arguments();
+                arguments.len() == 1
+                    && arguments
+                        .iter()
+                        .next()
+                        .is_some_and(|argument| argument.as_float_node().is_some())
+            })
+            && call.receiver().is_some_and(is_active_record_migration)
+    })
 }
 
 impl Cop for ReversibleMigrationMethodDefinition {
@@ -97,7 +130,7 @@ impl Cop for ReversibleMigrationMethodDefinition {
             Some(superclass) => superclass,
             None => return,
         };
-        if !is_migration_superclass(source, superclass) {
+        if !is_migration_superclass(superclass) {
             return;
         }
 
