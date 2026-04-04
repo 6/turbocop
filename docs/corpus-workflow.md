@@ -111,8 +111,7 @@ python3 scripts/check_cop.py Department/CopName \
     --native-config --repos-file bench/corpus/diverse_config_repos.txt --clone
 ```
 
-A curated list of repos with diverse configs is at
-`bench/corpus/diverse_config_repos.txt`. Regenerate it:
+Generate a curated repo list first (requires some corpus repos cloned locally):
 
 ```bash
 python3 scripts/find_diverse_config_repos.py --output bench/corpus/diverse_config_repos.txt
