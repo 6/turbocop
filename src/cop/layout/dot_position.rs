@@ -116,4 +116,36 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(DotPosition, "cops/layout/dot_position");
+
+    fn trailing_config() -> crate::cop::CopConfig {
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("trailing".to_string()),
+        );
+        crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_trailing() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &DotPosition,
+            include_bytes!("../../../tests/fixtures/cops/layout/dot_position/offense.trailing.rb"),
+            trailing_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_trailing() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &DotPosition,
+            include_bytes!(
+                "../../../tests/fixtures/cops/layout/dot_position/no_offense.trailing.rb"
+            ),
+            trailing_config(),
+        );
+    }
 }

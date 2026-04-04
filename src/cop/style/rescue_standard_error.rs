@@ -130,4 +130,37 @@ mod tests {
         let diags = run_cop_full(&RescueStandardError, source);
         assert!(diags.is_empty());
     }
+
+    fn explicit_config() -> CopConfig {
+        use std::collections::HashMap;
+        CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("explicit".into()),
+            )]),
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_explicit() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &RescueStandardError,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/rescue_standard_error/offense.explicit.rb"
+            ),
+            explicit_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_explicit() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &RescueStandardError,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/rescue_standard_error/no_offense.explicit.rb"
+            ),
+            explicit_config(),
+        );
+    }
 }

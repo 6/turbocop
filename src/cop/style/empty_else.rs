@@ -260,4 +260,52 @@ mod tests {
             "AllowComments: true should still flag empty else without comment"
         );
     }
+
+    fn style_config(style: &str) -> CopConfig {
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String(style.to_string()),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_empty_style() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &EmptyElse,
+            include_bytes!("../../../tests/fixtures/cops/style/empty_else/offense.empty.rb"),
+            style_config("empty"),
+        );
+    }
+
+    #[test]
+    fn no_offense_empty_style() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &EmptyElse,
+            include_bytes!("../../../tests/fixtures/cops/style/empty_else/no_offense.empty.rb"),
+            style_config("empty"),
+        );
+    }
+
+    #[test]
+    fn offense_nil_style() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &EmptyElse,
+            include_bytes!("../../../tests/fixtures/cops/style/empty_else/offense.nil_style.rb"),
+            style_config("nil"),
+        );
+    }
+
+    #[test]
+    fn no_offense_nil_style() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &EmptyElse,
+            include_bytes!("../../../tests/fixtures/cops/style/empty_else/no_offense.nil_style.rb"),
+            style_config("nil"),
+        );
+    }
 }
