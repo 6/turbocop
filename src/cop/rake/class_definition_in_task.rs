@@ -7,6 +7,12 @@ use crate::parse::source::SourceFile;
 
 /// Checks for class or module definitions inside Rake task or namespace blocks.
 ///
+/// ## Corpus note (2026-04-04)
+///
+/// 12 FPs were caused by the bare `Rakefile` Include pattern matching via the
+/// now-removed `rel_to_scan_root` fallback in config/mod.rs. The cop logic is
+/// correct — RuboCop's own cop fires on the same lines when invoked directly.
+///
 /// Such definitions are actually created at the top level despite their
 /// syntactic location, which is misleading.
 pub struct ClassDefinitionInTask;

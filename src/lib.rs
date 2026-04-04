@@ -101,7 +101,7 @@ fn collect_corpus_check_results(
     schema::init(config.config_dir());
 
     // Precompute cop filters and configs once
-    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview, &args.paths);
+    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
 
@@ -435,7 +435,7 @@ pub fn run(args: Args) -> Result<i32> {
     let discovered = discover_files(&args.paths, &config)?;
 
     // Build cop filters once (reused for --list-target-files, file filtering, and linting).
-    let cop_filters = config.build_cop_filters(&registry, &tier_map, args.preview, &args.paths);
+    let cop_filters = config.build_cop_filters(&registry, &tier_map, args.preview);
 
     // Filter globally-excluded files so they are not counted in "N files inspected"
     // or given progress dots.  Explicit CLI files bypass AllCops.Exclude unless

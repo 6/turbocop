@@ -160,7 +160,7 @@ mod tests {
         let registry = CopRegistry::default_registry();
         let tier_map = TierMap::load();
         let config = ResolvedConfig::empty();
-        let cop_filters = config.build_cop_filters(&registry, &tier_map, true, &[]);
+        let cop_filters = config.build_cop_filters(&registry, &tier_map, true);
         let base_configs = config.precompute_cop_configs(&registry);
         let args = syntax_only_args();
         let allowlist = crate::cop::autocorrect_allowlist::AutocorrectAllowlist::load();
@@ -221,7 +221,7 @@ mod tests {
         let registry = CopRegistry::default_registry();
         let tier_map = TierMap::load();
         let config = ResolvedConfig::empty();
-        let cop_filters = config.build_cop_filters(&registry, &tier_map, true, &[]);
+        let cop_filters = config.build_cop_filters(&registry, &tier_map, true);
         let args = syntax_only_args();
 
         // Use emit_invalid_utf8_diagnostic through lint_file indirectly.

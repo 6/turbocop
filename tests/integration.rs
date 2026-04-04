@@ -1678,8 +1678,7 @@ fn global_exclude_not_counted_in_file_count() {
 
     // Simulate what lib.rs now does: filter before passing to run_linter
     let all_files = vec![vendor_file, app_file];
-    let cop_filters =
-        config.build_cop_filters(&registry, &TierMap::load(), args.preview, &args.paths);
+    let cop_filters = config.build_cop_filters(&registry, &TierMap::load(), args.preview);
     let effective: Vec<PathBuf> = all_files
         .iter()
         .filter(|f| !cop_filters.is_globally_excluded(f))

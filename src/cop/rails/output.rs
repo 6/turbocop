@@ -4,6 +4,12 @@ use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// ## Corpus note (2026-04-04)
+///
+/// 1,425 FPs were caused by the `db/**/*.rb` Include pattern (which doesn't
+/// start with `**`) matching via the now-removed `rel_to_scan_root` fallback.
+/// Fixed in config/mod.rs by removing scan_root Include matching.
+///
 /// ## Corpus investigation (2026-03-07)
 ///
 /// FP=312, FN=59. Biggest FP source: `p { "..." }` in Phlex/Markaby views where
