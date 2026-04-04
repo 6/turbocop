@@ -1,10 +1,34 @@
-use crate::cop::shared::node_type::{
-    ELSE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE,
-};
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{CASE_MATCH_NODE, CASE_NODE, IF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+const MSG: &str = "Use the return of the conditional for variable assignment and comparison.";
+
+/// Checks for `if`, `case`, and `case/in` statements where each branch
+/// assigns to the same variable. Suggests using the return value of the
+/// conditional instead.
+///
+/// Supports local, instance, class, global variable writes, constant writes,
+/// setter calls (`obj.x =`), index setters (`obj[k] =`), and compound
+/// assignments (`+=`, `&&=`, `||=`).
+///
+/// Respects `SingleLineConditionsOnly` (default true): skips when any branch
+/// has multiple statements. Skips offenses whose autocorrection would exceed
+/// `Layout/LineLength`.
+///
+/// ## Corpus findings
+///
+/// The line-length guard uses a full body-line analysis (all lines in the
+/// node, not just the first) to match RuboCop's `correction_exceeds_line_limit?`.
+/// Some repos disable `Layout/LineLength` via `DisabledByDefault: true`, which
+/// means the oracle was generated without the guard — causing a small FN delta
+/// at HEAD for those repos. This is acceptable in reduce mode.
+///
+/// Remaining FN come primarily from: `unless` conditionals, multi-statement
+/// branches where `SingleLineConditionsOnly` suppresses, and patterns not yet
+/// handled (e.g. constant path writes, multi-assignment).
 pub struct ConditionalAssignment;
 
 impl Cop for ConditionalAssignment {
@@ -13,12 +37,7 @@ impl Cop for ConditionalAssignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            ELSE_NODE,
-            IF_NODE,
-            INSTANCE_VARIABLE_WRITE_NODE,
-            LOCAL_VARIABLE_WRITE_NODE,
-        ]
+        &[CASE_MATCH_NODE, CASE_NODE, IF_NODE]
     }
 
     fn check_node(
@@ -30,93 +49,479 @@ impl Cop for ConditionalAssignment {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let enforced_style = config.get_str("EnforcedStyle", "assign_to_condition");
-        let _single_line_only = config.get_bool("SingleLineConditionsOnly", true);
-        let _include_ternary = config.get_bool("IncludeTernaryExpressions", true);
-
-        if enforced_style != "assign_to_condition" {
+        if config.get_str("EnforcedStyle", "assign_to_condition") != "assign_to_condition" {
             return;
         }
 
-        // Check for if/else where each branch assigns to the same variable
-        let if_node = match node.as_if_node() {
-            Some(n) => n,
-            None => return,
-        };
+        let single_line_only = config.get_bool("SingleLineConditionsOnly", true);
+        let include_ternary = config.get_bool("IncludeTernaryExpressions", true);
+        let max_line_length = config.get_usize("MaxLineLength", 120);
+        let line_length_enabled = config.get_bool("LineLengthEnabled", max_line_length > 0);
 
-        // Must be a top-level `if`, not an `elsif` branch
-        if let Some(kw_loc) = if_node.if_keyword_loc() {
-            if kw_loc.as_slice() == b"elsif" {
+        if let Some(if_node) = node.as_if_node() {
+            // Ternary: Prism represents ternary as IfNode with no if_keyword_loc
+            if if_node.if_keyword_loc().is_none() {
+                if include_ternary {
+                    self.check_ternary(
+                        source,
+                        &if_node,
+                        max_line_length,
+                        line_length_enabled,
+                        diagnostics,
+                    );
+                }
                 return;
             }
-        }
-
-        // Must have an else clause
-        let else_clause = match if_node.subsequent() {
-            Some(s) => s,
-            None => return,
-        };
-
-        // Must be a simple if/else (not if/elsif/else)
-        if else_clause.as_if_node().is_some() {
-            return;
-        }
-
-        // Check if both branches assign to the same variable
-        let if_body = match if_node.statements() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let if_stmts: Vec<_> = if_body.body().iter().collect();
-        if if_stmts.len() != 1 {
-            return;
-        }
-
-        let if_assign_name = get_assignment_target(&if_stmts[0]);
-
-        if let Some(else_node) = else_clause.as_else_node() {
-            if let Some(else_stmts) = else_node.statements() {
-                let else_list: Vec<_> = else_stmts.body().iter().collect();
-                if else_list.len() != 1 {
+            // Must be top-level if, not elsif
+            if let Some(kw) = if_node.if_keyword_loc() {
+                if kw.as_slice() == b"elsif" {
                     return;
                 }
-
-                let else_assign_name = get_assignment_target(&else_list[0]);
-
-                if let (Some(if_name), Some(else_name)) = (if_assign_name, else_assign_name) {
-                    if if_name == else_name {
-                        let loc = if_node.location();
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Use the return value of `if` expression for variable assignment and comparison.".to_string(),
-                        ));
-                    }
-                }
             }
+            self.check_if(
+                source,
+                &if_node,
+                single_line_only,
+                max_line_length,
+                line_length_enabled,
+                diagnostics,
+            );
+        } else if let Some(case_node) = node.as_case_node() {
+            self.check_case(
+                source,
+                &case_node,
+                single_line_only,
+                max_line_length,
+                line_length_enabled,
+                diagnostics,
+            );
+        } else if let Some(cm) = node.as_case_match_node() {
+            self.check_case_match(
+                source,
+                &cm,
+                single_line_only,
+                max_line_length,
+                line_length_enabled,
+                diagnostics,
+            );
         }
     }
 }
 
-fn get_assignment_target(node: &ruby_prism::Node<'_>) -> Option<String> {
-    if let Some(write) = node.as_local_variable_write_node() {
-        return Some(
-            std::str::from_utf8(write.name().as_slice())
-                .unwrap_or("")
-                .to_string(),
+impl ConditionalAssignment {
+    fn check_if(
+        &self,
+        source: &SourceFile,
+        if_node: &ruby_prism::IfNode<'_>,
+        single_line_only: bool,
+        max_line_length: usize,
+        line_length_enabled: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Must have subsequent clause
+        let subsequent = match if_node.subsequent() {
+            Some(s) => s,
+            None => return,
+        };
+        // Must be simple if/else, not if/elsif/else
+        if subsequent.as_if_node().is_some() {
+            return;
+        }
+        let else_node = match subsequent.as_else_node() {
+            Some(e) => e,
+            None => return,
+        };
+
+        let if_stmts = match if_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let if_body: Vec<_> = if_stmts.body().iter().collect();
+
+        let else_stmts = match else_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let else_body: Vec<_> = else_stmts.body().iter().collect();
+
+        let branches: [&[ruby_prism::Node<'_>]; 2] = [&if_body, &else_body];
+        self.check_branches(
+            source,
+            &if_node.location(),
+            &branches,
+            single_line_only,
+            max_line_length,
+            line_length_enabled,
+            diagnostics,
         );
     }
-    if let Some(write) = node.as_instance_variable_write_node() {
-        return Some(
-            std::str::from_utf8(write.name().as_slice())
-                .unwrap_or("")
-                .to_string(),
+
+    fn check_case(
+        &self,
+        source: &SourceFile,
+        case_node: &ruby_prism::CaseNode<'_>,
+        single_line_only: bool,
+        max_line_length: usize,
+        line_length_enabled: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let else_clause = match case_node.else_clause() {
+            Some(e) => e,
+            None => return,
+        };
+
+        let mut bodies: Vec<Vec<ruby_prism::Node<'_>>> = Vec::new();
+        for condition in case_node.conditions().iter() {
+            let when_node = match condition.as_when_node() {
+                Some(w) => w,
+                None => return,
+            };
+            match when_node.statements() {
+                Some(s) => bodies.push(s.body().iter().collect()),
+                None => return,
+            }
+        }
+        match else_clause.statements() {
+            Some(s) => bodies.push(s.body().iter().collect()),
+            None => return,
+        }
+
+        let branches: Vec<&[ruby_prism::Node<'_>]> = bodies.iter().map(|v| v.as_slice()).collect();
+        self.check_branches(
+            source,
+            &case_node.location(),
+            &branches,
+            single_line_only,
+            max_line_length,
+            line_length_enabled,
+            diagnostics,
         );
+    }
+
+    fn check_case_match(
+        &self,
+        source: &SourceFile,
+        case_match: &ruby_prism::CaseMatchNode<'_>,
+        single_line_only: bool,
+        max_line_length: usize,
+        line_length_enabled: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let else_clause = match case_match.else_clause() {
+            Some(e) => e,
+            None => return,
+        };
+
+        let mut bodies: Vec<Vec<ruby_prism::Node<'_>>> = Vec::new();
+        for condition in case_match.conditions().iter() {
+            let in_node = match condition.as_in_node() {
+                Some(i) => i,
+                None => return,
+            };
+            match in_node.statements() {
+                Some(s) => bodies.push(s.body().iter().collect()),
+                None => return,
+            }
+        }
+        match else_clause.statements() {
+            Some(s) => bodies.push(s.body().iter().collect()),
+            None => return,
+        }
+
+        let branches: Vec<&[ruby_prism::Node<'_>]> = bodies.iter().map(|v| v.as_slice()).collect();
+        self.check_branches(
+            source,
+            &case_match.location(),
+            &branches,
+            single_line_only,
+            max_line_length,
+            line_length_enabled,
+            diagnostics,
+        );
+    }
+
+    fn check_ternary(
+        &self,
+        source: &SourceFile,
+        if_node: &ruby_prism::IfNode<'_>,
+        max_line_length: usize,
+        line_length_enabled: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let if_stmts = match if_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let if_body: Vec<_> = if_stmts.body().iter().collect();
+        if if_body.len() != 1 {
+            return;
+        }
+
+        let subsequent = match if_node.subsequent() {
+            Some(s) => s,
+            None => return,
+        };
+        let else_node = match subsequent.as_else_node() {
+            Some(e) => e,
+            None => return,
+        };
+        let else_stmts = match else_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let else_body: Vec<_> = else_stmts.body().iter().collect();
+        if else_body.len() != 1 {
+            return;
+        }
+
+        let if_info = match get_assignment_info(&if_body[0]) {
+            Some(i) => i,
+            None => return,
+        };
+        let else_info = match get_assignment_info(&else_body[0]) {
+            Some(i) => i,
+            None => return,
+        };
+
+        if if_info.key != else_info.key {
+            return;
+        }
+
+        if line_length_enabled && max_line_length > 0 {
+            let (_, col) = source.offset_to_line_col(if_node.location().start_offset());
+            if exceeds_line_limit(&if_node.location(), col, &if_info.lhs_text, max_line_length) {
+                return;
+            }
+        }
+
+        let loc = if_node.location();
+        let (line, col) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(source, line, col, MSG.to_string()));
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn check_branches(
+        &self,
+        source: &SourceFile,
+        node_loc: &ruby_prism::Location<'_>,
+        branches: &[&[ruby_prism::Node<'_>]],
+        single_line_only: bool,
+        max_line_length: usize,
+        line_length_enabled: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if branches.is_empty() {
+            return;
+        }
+
+        for branch in branches {
+            if branch.is_empty() {
+                return;
+            }
+            if single_line_only && branch.len() > 1 {
+                return;
+            }
+        }
+
+        // Check last statement of each branch is an assignment to the same target
+        let mut first_key: Option<String> = None;
+        let mut lhs_text = String::new();
+
+        for branch in branches {
+            let last = &branch[branch.len() - 1];
+            let info = match get_assignment_info(last) {
+                Some(i) => i,
+                None => return,
+            };
+            match &first_key {
+                None => {
+                    first_key = Some(info.key);
+                    lhs_text = info.lhs_text;
+                }
+                Some(k) => {
+                    if info.key != *k {
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Line length guard
+        if line_length_enabled && max_line_length > 0 && !lhs_text.is_empty() {
+            let (_, col) = source.offset_to_line_col(node_loc.start_offset());
+            if exceeds_line_limit(node_loc, col, &lhs_text, max_line_length) {
+                return;
+            }
+        }
+
+        let (line, col) = source.offset_to_line_col(node_loc.start_offset());
+        diagnostics.push(self.diagnostic(source, line, col, MSG.to_string()));
+    }
+}
+
+struct AssignInfo {
+    key: String,
+    lhs_text: String, // e.g. "x = ", "@foo = ", "obj.method = "
+}
+
+fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
+    if let Some(w) = node.as_local_variable_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("lvar:{}", name),
+            lhs_text: format!("{} = ", name),
+        });
+    }
+    if let Some(w) = node.as_instance_variable_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("ivar:{}", name),
+            lhs_text: format!("{} = ", name),
+        });
+    }
+    if let Some(w) = node.as_class_variable_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("cvar:{}", name),
+            lhs_text: format!("{} = ", name),
+        });
+    }
+    if let Some(w) = node.as_global_variable_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("gvar:{}", name),
+            lhs_text: format!("{} = ", name),
+        });
+    }
+    if let Some(w) = node.as_constant_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("const:{}", name),
+            lhs_text: format!("{} = ", name),
+        });
+    }
+    // Setter call: obj.method= value or obj[key]= value
+    if let Some(call) = node.as_call_node() {
+        let method = call.name().as_slice();
+        // Check []= BEFORE is_setter_method — is_setter_method matches any
+        // name ending with `=`, which includes `[]=`.  The generic setter path
+        // ignores the index arguments, so `flash[:success]=` and
+        // `flash[:error]=` would incorrectly share the same assignment key.
+        if method == b"[]=" {
+            let recv_src = call.receiver().map_or(String::new(), |r| {
+                String::from_utf8_lossy(r.location().as_slice()).to_string()
+            });
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if arg_list.len() >= 2 {
+                    let indices: Vec<_> = arg_list[..arg_list.len() - 1]
+                        .iter()
+                        .map(|a| String::from_utf8_lossy(a.location().as_slice()).to_string())
+                        .collect();
+                    let idx_str = indices.join(", ");
+                    return Some(AssignInfo {
+                        key: format!("send:{}[{}]=", recv_src, idx_str),
+                        lhs_text: format!("{}[{}] = ", recv_src, idx_str),
+                    });
+                }
+            }
+            return None;
+        }
+        if method_identifier_predicates::is_setter_method(method) {
+            let recv_src = call.receiver().map_or(String::new(), |r| {
+                String::from_utf8_lossy(r.location().as_slice()).to_string()
+            });
+            let method_str = String::from_utf8_lossy(method);
+            let method_base = &method_str[..method_str.len().saturating_sub(1)];
+            return Some(AssignInfo {
+                key: format!("send:{}.{}", recv_src, method_str),
+                lhs_text: format!("{}.{} = ", recv_src, method_base),
+            });
+        }
+    }
+    // Operator assignments: x += 1
+    if let Some(w) = node.as_local_variable_operator_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:lvar:{} {}", name, op),
+            lhs_text: format!("{} {}= ", name, op),
+        });
+    }
+    if let Some(w) = node.as_instance_variable_operator_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:ivar:{} {}", name, op),
+            lhs_text: format!("{} {}= ", name, op),
+        });
+    }
+    // And/Or assignments: x &&= 1, x ||= 1
+    if let Some(w) = node.as_local_variable_and_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("and:lvar:{}", name),
+            lhs_text: format!("{} &&= ", name),
+        });
+    }
+    if let Some(w) = node.as_local_variable_or_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("or:lvar:{}", name),
+            lhs_text: format!("{} ||= ", name),
+        });
+    }
+    if let Some(w) = node.as_instance_variable_and_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("and:ivar:{}", name),
+            lhs_text: format!("{} &&= ", name),
+        });
+    }
+    if let Some(w) = node.as_instance_variable_or_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("or:ivar:{}", name),
+            lhs_text: format!("{} ||= ", name),
+        });
     }
     None
+}
+
+/// Check if the corrected form would exceed the configured line length.
+/// Mirrors RuboCop's `correction_exceeds_line_limit?`: for each source line,
+/// remove the assignment LHS (if present), find the longest remaining line,
+/// and check if `lhs.len() + longest > max_line_length`.
+fn exceeds_line_limit(
+    node_loc: &ruby_prism::Location<'_>,
+    node_col: usize,
+    lhs_text: &str,
+    max_line_length: usize,
+) -> bool {
+    let node_bytes = node_loc.as_slice();
+    let src = match std::str::from_utf8(node_bytes) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let lhs_trimmed = lhs_text.trim_end();
+    let mut max_remaining = 0;
+    for (i, line) in src.lines().enumerate() {
+        // Compute actual line length (first line needs column offset)
+        let base_len = if i == 0 { node_col } else { 0 };
+        // Try to remove the LHS from this line (at line start after whitespace)
+        let trimmed = line.trim_start();
+        let remaining = if let Some(stripped) = trimmed.strip_prefix(lhs_trimmed) {
+            let rest = stripped.trim_start();
+            let leading_ws = line.len() - trimmed.len();
+            base_len + leading_ws + rest.len()
+        } else {
+            base_len + line.len()
+        };
+        if remaining > max_remaining {
+            max_remaining = remaining;
+        }
+    }
+    lhs_text.len() + max_remaining > max_line_length
 }
 
 #[cfg(test)]
