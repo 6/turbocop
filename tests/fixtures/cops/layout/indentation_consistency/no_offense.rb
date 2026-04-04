@@ -115,6 +115,20 @@ module ClinicFinder
   end
 end
 
+if RUBY_VERSION < '1.9'
+    def initialize
+    end
+
+    def inspect
+    end
+
+  private
+
+    def sync_keys!
+    end
+
+  end
+
 def erb(title:)
 _erbout = +'';
 _erbout.<< "<article>".freeze
