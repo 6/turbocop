@@ -282,3 +282,28 @@ else
   @bin = encode(@value)
   ^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bin = encode(@value)` out of the conditional.
 end
+
+# ternary with identical branches after unescaping
+U2028, U2029 = ("\u2028" == 'u2028') ? ["\342\200\250", "\342\200\251"] : ["\u2028", "\u2029"]
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `["\342\200\250", "\342\200\251"]` out of the conditional.
+                                                                          ^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `["\342\200\250", "\342\200\251"]` out of the conditional.
+
+# unless/else with identical bodies differing only in string escapes
+unless condition
+  "{\"bar\":\"\u2028 and \u2029\"}"
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `"{\"bar\":\"\u2028 and \u2029\"}"` out of the conditional.
+else
+  "{\"bar\":\"\342\200\250 and \342\200\251\"}"
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `"{\"bar\":\"\u2028 and \u2029\"}"` out of the conditional.
+end
+
+# if/else identical trailing method calls with optional parentheses
+if condition
+  something_a
+  set_header RACK_REQUEST_FORM_PAIRS, pairs
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `set_header RACK_REQUEST_FORM_PAIRS, pairs` out of the conditional.
+else
+  something_b
+  set_header(RACK_REQUEST_FORM_PAIRS, pairs)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `set_header RACK_REQUEST_FORM_PAIRS, pairs` out of the conditional.
+end

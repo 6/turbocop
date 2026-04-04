@@ -60,11 +60,45 @@ use ruby_prism::Visit;
 ///    exhaustive (for example, an `unless` without `else`, or a modifier `if`).
 ///    Prism keeps that structure inside an explicit `ElseNode`, so nitrocop has
 ///    to flatten or bail explicitly to match RuboCop.
+///
+/// ## Investigation findings (round 3) — AST fingerprinting
+///
+/// Replaced source-text comparison (`normalized_source_key`) with AST-based
+/// fingerprinting (`node_fp`). RuboCop compares AST nodes for equality, not
+/// source text, so expressions that differ only in surface syntax (optional
+/// parens, string escape representation, trailing comments) must compare
+/// equal, while expressions with the same text but different AST structure
+/// (`__LINE__` on different lines, lvar vs bare method call) must differ.
+///
+/// 9.  **FN: string escape representation** — `"\u2028"` and `"\342\200\250"`
+///     have identical unescaped bytes. AST fingerprinting uses `unescaped()`
+///     for `StringNode`/`SymbolNode`, matching RuboCop's AST equality.
+///
+/// 10. **FN: optional parentheses** — `set_header RACK_REQUEST_FORM_PAIRS, x`
+///     and `set_header(RACK_REQUEST_FORM_PAIRS, x)` are the same `CallNode`.
+///     `call_node_fp` fingerprints structurally, ignoring parens.
+///
+/// 11. **FN: comment-only differences** — Comments are not AST nodes, so
+///     `do_x # comment A` and `do_x # comment B` have the same AST.
+///     `node_fp` operates on the AST, naturally ignoring comments.
+///
+/// 12. **FP: `__LINE__` on different lines** — `__LINE__` is a
+///     `SourceLineNode` that evaluates to its line number. Two branches with
+///     `__LINE__` on different lines are semantically different. Fingerprint
+///     includes the actual line number.
+///
+/// 13. **FP: lvar vs bare method call** — After assignment in one branch,
+///     `response` becomes a `LocalVariableReadNode`; in the other branch
+///     (before the parser sees the assignment) it remains a `CallNode`.
+///     Fingerprinting distinguishes `LVR:` from `C:` prefixes.
+///
+/// Remaining FP (1): RuboCop crashes on single-line ternary `chars.shift`
+/// inside `if` assignment — this is a RuboCop bug, not fixable on our side.
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
     src: String,
-    key: String,
+    key: Vec<u8>,
     line: usize,
     col: usize,
     has_heredoc: bool,
@@ -82,68 +116,622 @@ fn node_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
     String::from_utf8_lossy(src).trim().to_string()
 }
 
-fn normalized_source_key(src: &str) -> String {
-    #[derive(Clone, Copy)]
-    enum QuoteState {
-        None,
-        Single,
-        Double,
+// ---------------------------------------------------------------------------
+// AST fingerprinting — produces a canonical byte key for each statement that
+// matches RuboCop's AST-level comparison semantics:
+//   • ignores optional parentheses in method calls
+//   • ignores comments
+//   • compares string content (unescaped), not source representation
+//   • distinguishes local variable reads from bare method calls
+//   • uses actual line number for __LINE__
+// ---------------------------------------------------------------------------
+
+/// Build a fingerprint for a Prism AST node into `out`.
+fn node_fp(source: &SourceFile, bytes: &[u8], node: &ruby_prism::Node<'_>, out: &mut Vec<u8>) {
+    // String literal: compare by unescaped content
+    if let Some(s) = node.as_string_node() {
+        out.extend_from_slice(b"S:");
+        out.extend_from_slice(s.unescaped());
+        return;
     }
 
-    let mut out = String::with_capacity(src.len());
-    let mut quote = QuoteState::None;
-    let mut escaped = false;
-    let mut pending_space = false;
+    // Symbol literal: compare by unescaped name
+    if let Some(s) = node.as_symbol_node() {
+        out.extend_from_slice(b"Y:");
+        out.extend_from_slice(s.unescaped());
+        return;
+    }
 
-    for ch in src.chars() {
-        match quote {
-            QuoteState::None => {
-                if ch.is_whitespace() {
-                    pending_space = true;
-                    continue;
-                }
+    // CallNode: structural fingerprint independent of optional parentheses
+    if let Some(call) = node.as_call_node() {
+        call_node_fp(source, bytes, &call, out);
+        return;
+    }
 
-                if pending_space && !out.is_empty() {
-                    let prev = out.chars().next_back();
-                    if !matches!(ch, ',' | ')' | ']' | '}' | ';')
-                        && !matches!(prev, Some('(' | '[' | '{'))
-                    {
-                        out.push(' ');
-                    }
-                }
-                pending_space = false;
-                out.push(ch);
+    // Local variable read: distinguished from bare method calls
+    if let Some(lvar) = node.as_local_variable_read_node() {
+        out.extend_from_slice(b"LVR:");
+        out.extend_from_slice(lvar.name().as_slice());
+        return;
+    }
 
-                quote = match ch {
-                    '\'' => QuoteState::Single,
-                    '"' => QuoteState::Double,
-                    _ => QuoteState::None,
-                };
+    // Instance variable read
+    if let Some(ivar) = node.as_instance_variable_read_node() {
+        out.extend_from_slice(b"IVR:");
+        out.extend_from_slice(ivar.name().as_slice());
+        return;
+    }
+
+    // Class variable read
+    if let Some(cv) = node.as_class_variable_read_node() {
+        out.extend_from_slice(b"CVR:");
+        out.extend_from_slice(cv.name().as_slice());
+        return;
+    }
+
+    // Global variable read
+    if let Some(gv) = node.as_global_variable_read_node() {
+        out.extend_from_slice(b"GVR:");
+        out.extend_from_slice(gv.name().as_slice());
+        return;
+    }
+
+    // Local variable write
+    if let Some(w) = node.as_local_variable_write_node() {
+        out.extend_from_slice(b"LVW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.push(b'=');
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+
+    // Instance variable write
+    if let Some(w) = node.as_instance_variable_write_node() {
+        out.extend_from_slice(b"IVW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.push(b'=');
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+
+    // Class variable write
+    if let Some(w) = node.as_class_variable_write_node() {
+        out.extend_from_slice(b"CVW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.push(b'=');
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+
+    // Global variable write
+    if let Some(w) = node.as_global_variable_write_node() {
+        out.extend_from_slice(b"GVW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.push(b'=');
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+
+    // Constant write
+    if let Some(w) = node.as_constant_write_node() {
+        out.extend_from_slice(b"CW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.push(b'=');
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+
+    // Constant read
+    if let Some(c) = node.as_constant_read_node() {
+        out.extend_from_slice(b"CR:");
+        out.extend_from_slice(c.name().as_slice());
+        return;
+    }
+
+    // Constant path (e.g. Foo::Bar): use source text since it has no child()
+    if node.as_constant_path_node().is_some() {
+        out.extend_from_slice(b"CP:");
+        let loc = node.location();
+        out.extend_from_slice(&bytes[loc.start_offset()..loc.end_offset()]);
+        return;
+    }
+
+    // Array
+    if let Some(array) = node.as_array_node() {
+        out.push(b'[');
+        for (i, elem) in array.elements().iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
             }
-            QuoteState::Single => {
-                out.push(ch);
-                if escaped {
-                    escaped = false;
-                } else if ch == '\\' {
-                    escaped = true;
-                } else if ch == '\'' {
-                    quote = QuoteState::None;
-                }
+            node_fp(source, bytes, &elem, out);
+        }
+        out.push(b']');
+        return;
+    }
+
+    // Hash
+    if let Some(hash) = node.as_hash_node() {
+        out.extend_from_slice(b"H{");
+        for (i, elem) in hash.elements().iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
             }
-            QuoteState::Double => {
-                out.push(ch);
-                if escaped {
-                    escaped = false;
-                } else if ch == '\\' {
-                    escaped = true;
-                } else if ch == '"' {
-                    quote = QuoteState::None;
+            node_fp(source, bytes, &elem, out);
+        }
+        out.push(b'}');
+        return;
+    }
+
+    // Keyword hash (implicit hash in arguments)
+    if let Some(hash) = node.as_keyword_hash_node() {
+        out.extend_from_slice(b"H{");
+        for (i, elem) in hash.elements().iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
+            }
+            node_fp(source, bytes, &elem, out);
+        }
+        out.push(b'}');
+        return;
+    }
+
+    // Assoc (key => value pair)
+    if let Some(assoc) = node.as_assoc_node() {
+        out.extend_from_slice(b"P(");
+        node_fp(source, bytes, &assoc.key(), out);
+        out.extend_from_slice(b"=>");
+        node_fp(source, bytes, &assoc.value(), out);
+        out.push(b')');
+        return;
+    }
+
+    // Assoc splat (**hash)
+    if let Some(splat) = node.as_assoc_splat_node() {
+        out.extend_from_slice(b"AS:");
+        if let Some(value) = splat.value() {
+            node_fp(source, bytes, &value, out);
+        }
+        return;
+    }
+
+    // Return node
+    if let Some(ret) = node.as_return_node() {
+        out.extend_from_slice(b"RET(");
+        if let Some(args) = ret.arguments() {
+            for (i, arg) in args.arguments().iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
                 }
+                node_fp(source, bytes, &arg, out);
             }
         }
+        out.push(b')');
+        return;
     }
 
-    out
+    // Block node
+    if let Some(block) = node.as_block_node() {
+        out.extend_from_slice(b"BLK(");
+        match block.parameters() {
+            Some(params) => node_fp(source, bytes, &params, out),
+            None => out.push(b'-'),
+        }
+        out.push(b'|');
+        if let Some(body) = block.body() {
+            node_fp(source, bytes, &body, out);
+        }
+        out.push(b')');
+        return;
+    }
+
+    // If node (also handles nested conditionals in heads/tails)
+    if let Some(if_node) = node.as_if_node() {
+        out.extend_from_slice(b"IF(");
+        node_fp(source, bytes, &if_node.predicate(), out);
+        out.push(b'|');
+        if let Some(stmts) = if_node.statements() {
+            stmts_fp(source, bytes, &stmts, out);
+        }
+        out.push(b'|');
+        if let Some(sub) = if_node.subsequent() {
+            node_fp(source, bytes, &sub, out);
+        }
+        out.push(b')');
+        return;
+    }
+
+    // Unless node
+    if let Some(unless) = node.as_unless_node() {
+        out.extend_from_slice(b"UNLESS(");
+        node_fp(source, bytes, &unless.predicate(), out);
+        out.push(b'|');
+        if let Some(stmts) = unless.statements() {
+            stmts_fp(source, bytes, &stmts, out);
+        }
+        out.push(b'|');
+        if let Some(ec) = unless.else_clause() {
+            node_fp(source, bytes, &ec.as_node(), out);
+        }
+        out.push(b')');
+        return;
+    }
+
+    // Else node
+    if let Some(else_node) = node.as_else_node() {
+        out.extend_from_slice(b"ELSE(");
+        if let Some(stmts) = else_node.statements() {
+            stmts_fp(source, bytes, &stmts, out);
+        }
+        out.push(b')');
+        return;
+    }
+
+    // Statements node
+    if let Some(stmts) = node.as_statements_node() {
+        stmts_fp(source, bytes, &stmts, out);
+        return;
+    }
+
+    // __LINE__: include actual line number so different lines differ
+    if node.as_source_line_node().is_some() {
+        let (line, _) = source.offset_to_line_col(node.location().start_offset());
+        out.extend_from_slice(b"SL:");
+        out.extend_from_slice(line.to_string().as_bytes());
+        return;
+    }
+
+    // __FILE__
+    if node.as_source_file_node().is_some() {
+        out.extend_from_slice(b"SF");
+        return;
+    }
+
+    // __ENCODING__
+    if node.as_source_encoding_node().is_some() {
+        out.extend_from_slice(b"SE");
+        return;
+    }
+
+    // Integer literal
+    if let Some(int) = node.as_integer_node() {
+        out.extend_from_slice(b"I:");
+        let val = int.value();
+        let (neg, digits) = val.to_u32_digits();
+        if neg {
+            out.push(b'-');
+        }
+        for d in digits {
+            out.extend_from_slice(&d.to_le_bytes());
+        }
+        return;
+    }
+
+    // Float literal
+    if let Some(f) = node.as_float_node() {
+        out.extend_from_slice(b"F:");
+        out.extend_from_slice(f.value().to_bits().to_le_bytes().as_slice());
+        return;
+    }
+
+    // nil / true / false / self
+    if node.as_nil_node().is_some() {
+        out.extend_from_slice(b"nil");
+        return;
+    }
+    if node.as_true_node().is_some() {
+        out.extend_from_slice(b"true");
+        return;
+    }
+    if node.as_false_node().is_some() {
+        out.extend_from_slice(b"false");
+        return;
+    }
+    if node.as_self_node().is_some() {
+        out.extend_from_slice(b"self");
+        return;
+    }
+
+    // Splat (*expr)
+    if let Some(splat) = node.as_splat_node() {
+        out.push(b'*');
+        if let Some(expr) = splat.expression() {
+            node_fp(source, bytes, &expr, out);
+        }
+        return;
+    }
+
+    // Regex: use unescaped content (whitespace-sensitive)
+    if let Some(regex) = node.as_regular_expression_node() {
+        out.extend_from_slice(b"RE:");
+        out.extend_from_slice(regex.unescaped());
+        return;
+    }
+
+    // Interpolated regex: use source (whitespace-sensitive)
+    if node.as_interpolated_regular_expression_node().is_some() {
+        let loc = node.location();
+        out.extend_from_slice(b"IRE:");
+        out.extend_from_slice(&bytes[loc.start_offset()..loc.end_offset()]);
+        return;
+    }
+
+    // Interpolated string: structural with parts
+    if let Some(istr) = node.as_interpolated_string_node() {
+        out.extend_from_slice(b"IS:");
+        for (i, part) in istr.parts().iter().enumerate() {
+            if i > 0 {
+                out.push(b'+');
+            }
+            node_fp(source, bytes, &part, out);
+        }
+        return;
+    }
+
+    // Embedded statements (#{...} inside strings)
+    if let Some(es) = node.as_embedded_statements_node() {
+        out.extend_from_slice(b"ES(");
+        if let Some(stmts) = es.statements() {
+            stmts_fp(source, bytes, &stmts, out);
+        }
+        out.push(b')');
+        return;
+    }
+
+    // Multi-write (parallel assignment like X, Y = ...)
+    if let Some(mw) = node.as_multi_write_node() {
+        out.extend_from_slice(b"MW(");
+        for (i, target) in mw.lefts().iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
+            }
+            node_fp(source, bytes, &target, out);
+        }
+        out.push(b'=');
+        node_fp(source, bytes, &mw.value(), out);
+        out.push(b')');
+        return;
+    }
+
+    // Parentheses node
+    if let Some(pn) = node.as_parentheses_node() {
+        out.push(b'(');
+        if let Some(body) = pn.body() {
+            node_fp(source, bytes, &body, out);
+        }
+        out.push(b')');
+        return;
+    }
+
+    // Block argument node
+    if let Some(ba) = node.as_block_argument_node() {
+        out.push(b'&');
+        if let Some(expr) = ba.expression() {
+            node_fp(source, bytes, &expr, out);
+        }
+        return;
+    }
+
+    // Range node
+    if let Some(range) = node.as_range_node() {
+        out.extend_from_slice(b"R(");
+        if let Some(left) = range.left() {
+            node_fp(source, bytes, &left, out);
+        }
+        // Use operator to distinguish .. from ...
+        out.extend_from_slice(range.operator_loc().as_slice());
+        if let Some(right) = range.right() {
+            node_fp(source, bytes, &right, out);
+        }
+        out.push(b')');
+        return;
+    }
+
+    // Operator write nodes (+=, ||=, &&=)
+    if let Some(w) = node.as_local_variable_operator_write_node() {
+        out.extend_from_slice(b"LVOW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.extend_from_slice(w.binary_operator_loc().as_slice());
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+    if let Some(w) = node.as_instance_variable_operator_write_node() {
+        out.extend_from_slice(b"IVOW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.extend_from_slice(w.binary_operator_loc().as_slice());
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+    if let Some(w) = node.as_local_variable_or_write_node() {
+        out.extend_from_slice(b"LVORW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.extend_from_slice(b"||=");
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+    if let Some(w) = node.as_local_variable_and_write_node() {
+        out.extend_from_slice(b"LVANW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.extend_from_slice(b"&&=");
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+    if let Some(w) = node.as_instance_variable_or_write_node() {
+        out.extend_from_slice(b"IVORW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.extend_from_slice(b"||=");
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+    if let Some(w) = node.as_instance_variable_and_write_node() {
+        out.extend_from_slice(b"IVANW:");
+        out.extend_from_slice(w.name().as_slice());
+        out.extend_from_slice(b"&&=");
+        node_fp(source, bytes, &w.value(), out);
+        return;
+    }
+
+    // Defined? node
+    if let Some(d) = node.as_defined_node() {
+        out.extend_from_slice(b"DEF?(");
+        node_fp(source, bytes, &d.value(), out);
+        out.push(b')');
+        return;
+    }
+
+    // Yield node
+    if let Some(y) = node.as_yield_node() {
+        out.extend_from_slice(b"YIELD(");
+        if let Some(args) = y.arguments() {
+            for (i, arg) in args.arguments().iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                node_fp(source, bytes, &arg, out);
+            }
+        }
+        out.push(b')');
+        return;
+    }
+
+    // Fallback: source-based fingerprint with comment stripping
+    source_based_fp(bytes, node, out);
+}
+
+/// Fingerprint a StatementsNode body.
+fn stmts_fp(
+    source: &SourceFile,
+    bytes: &[u8],
+    stmts: &ruby_prism::StatementsNode<'_>,
+    out: &mut Vec<u8>,
+) {
+    for (i, node) in stmts.body().iter().enumerate() {
+        if i > 0 {
+            out.push(b'\x00');
+        }
+        node_fp(source, bytes, &node, out);
+    }
+}
+
+/// Build a structural fingerprint for a CallNode, independent of optional
+/// parentheses. `foo(x)` and `foo x` produce the same fingerprint.
+fn call_node_fp(
+    source: &SourceFile,
+    bytes: &[u8],
+    call: &ruby_prism::CallNode<'_>,
+    out: &mut Vec<u8>,
+) {
+    out.extend_from_slice(b"C:");
+    if let Some(recv) = call.receiver() {
+        node_fp(source, bytes, &recv, out);
+        if let Some(op) = call.call_operator_loc() {
+            out.extend_from_slice(op.as_slice());
+        } else {
+            out.push(b'.');
+        }
+    }
+    out.extend_from_slice(call.name().as_slice());
+    out.push(b'(');
+    if let Some(args) = call.arguments() {
+        for (i, arg) in args.arguments().iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
+            }
+            node_fp(source, bytes, &arg, out);
+        }
+    }
+    out.push(b')');
+    if let Some(block) = call.block() {
+        out.push(b'{');
+        node_fp(source, bytes, &block, out);
+        out.push(b'}');
+    }
+}
+
+/// Fallback: source-based fingerprint that strips comments and normalizes
+/// whitespace, preserving content inside string/regex literals.
+fn source_based_fp(bytes: &[u8], node: &ruby_prism::Node<'_>, out: &mut Vec<u8>) {
+    let loc = node.location();
+    let start = loc.start_offset();
+    let end = loc.end_offset().min(bytes.len());
+    if start >= end {
+        return;
+    }
+    let raw = &bytes[start..end];
+    let stripped = strip_comments(raw);
+    let normalized = normalize_ws(&stripped);
+    out.extend_from_slice(&normalized);
+}
+
+/// Strip single-line `#` comments from source bytes.
+/// Tracks quote state to avoid stripping inside strings.
+fn strip_comments(src: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(src.len());
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < src.len() {
+        let b = src[i];
+        if escaped {
+            result.push(b);
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        if b == b'\\' && (in_single_quote || in_double_quote) {
+            escaped = true;
+            result.push(b);
+            i += 1;
+            continue;
+        }
+        if !in_double_quote && b == b'\'' {
+            in_single_quote = !in_single_quote;
+            result.push(b);
+            i += 1;
+            continue;
+        }
+        if !in_single_quote && b == b'"' {
+            in_double_quote = !in_double_quote;
+            result.push(b);
+            i += 1;
+            continue;
+        }
+        if !in_single_quote && !in_double_quote && b == b'#' {
+            while i < src.len() && src[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        result.push(b);
+        i += 1;
+    }
+    result
+}
+
+/// Normalize whitespace: collapse runs of whitespace, inserting a single space
+/// only between word characters to prevent identifier merging.
+fn normalize_ws(src: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(src.len());
+    let mut pending_ws = false;
+    for &b in src {
+        if b.is_ascii_whitespace() {
+            pending_ws = true;
+        } else {
+            if pending_ws && !result.is_empty() {
+                let prev = *result.last().unwrap();
+                if is_word_byte(prev) && is_word_byte(b) {
+                    result.push(b' ');
+                }
+            }
+            result.push(b);
+            pending_ws = false;
+        }
+    }
+    result
+}
+
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Check if a node contains any heredoc string nodes.
@@ -258,15 +846,11 @@ fn stmt_info(
     let (line, col) = source.offset_to_line_col(loc.start_offset());
     let has_heredoc = contains_heredoc(node);
     let src = node_source(source, node);
-    let key = if node.as_regular_expression_node().is_some()
-        || node.as_interpolated_regular_expression_node().is_some()
-    {
-        // Whitespace inside a regexp body is semantic, unlike the formatting-only
-        // whitespace we collapse for ordinary Ruby statements.
-        src.clone()
-    } else {
-        normalized_source_key(&src)
-    };
+    // Build AST-based fingerprint key for comparison — this matches RuboCop's
+    // AST-level comparison: ignores optional parens, comments, string escape
+    // representation, and distinguishes lvar from method calls.
+    let mut key = Vec::new();
+    node_fp(source, source.as_bytes(), node, &mut key);
     Some(StatementInfo {
         key,
         src,
