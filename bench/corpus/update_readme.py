@@ -295,22 +295,25 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
             )
             if no_data > 0:
                 cells += f" {row['no_data_cops']:,} |"
-            cells += f" {format_exact_match_pct(row['perfect_cops'], row['cops'])} |"
+            cells += f" {format_offense_match_pct(row['matches'], row['fp'], row['fn'])} |"
             if has_variant:
                 vr = row.get("variant_match_rate")
                 cells += f" {format_match_rate(vr) if vr is not None else 'N/A'} |"
             lines.append(cells)
 
         if len(rows) > 1:
+            gem_matches = sum(r["matches"] for r in rows)
+            gem_fp = sum(r["fp"] for r in rows)
+            gem_fn = sum(r["fn"] for r in rows)
             cells = (
                 f"| **Total** | **{total:,}** | **{perfect:,}** | "
                 f"**{diverging:,}** |"
             )
             if no_data > 0:
                 cells += f" **{no_data:,}** |"
-            cells += f" **{format_exact_match_pct(perfect, total)}** |"
+            cells += f" **{format_offense_match_pct(gem_matches, gem_fp, gem_fn)}** |"
             if has_variant:
-                cells += " |"  # no meaningful aggregate for per-cop % column
+                cells += " |"
             lines.append(cells)
         lines.append("")
 

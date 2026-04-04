@@ -186,8 +186,8 @@ def test_write():
         assert "See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown." in updated
         assert "| Department | Cops | Matched exactly | Differed | No corpus data | Default % |" in updated
         assert "**[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (9 cops)" in updated
-        assert "| **Total** | **9** | **4** | **2** | **3** | **44.4%** |" in updated
-        assert "| Rails | 1 | 0 | 1 | 0.0% |" in updated
+        # Default % is now offense match rate, not cop exact-match %
+        assert "| Rails | 1 | 0 | 1 |" in updated
         assert "| Performance | 1 | 1 | 0 | ✓ 100.0% |" in updated
         assert "| **Total** | **1** |" not in updated
         assert "Old generated cops section." not in updated
