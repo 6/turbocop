@@ -36,6 +36,23 @@ use ruby_prism::Visit;
 /// modifier-form nodes separately, measuring the rendered line length with the
 /// same `Layout/LineLength` allowances RuboCop uses here, and skipping only the
 /// narrow `foo if bar; baz` same-line sibling case that RuboCop also ignores.
+///
+/// FN root cause (2026-04-04): `condition_contains_defined` was a blanket skip
+/// for any `defined?()` in the condition. RuboCop only skips when the argument
+/// is a local variable or method call (`:lvar`/`:send`) that hasn't been
+/// previously assigned (`defined_argument_is_undefined?`). For constants
+/// (`JRUBY_VERSION`), class variables (`@@logger`), instance variables, and
+/// global variables, `defined?` doesn't change scoping semantics in modifier
+/// form, so the cop should still flag. Fixed by checking the DefinedNode's
+/// `value()` type in the visitor — only set found=true for
+/// LocalVariableReadNode or CallNode arguments.
+///
+/// Remaining FN: `{ if user then body end }` (one-line if inside block)
+/// — the `}` after `end` is treated as "code after end", skipping the
+/// detection. Fixing this by allowing `}` would cause FPs for
+/// `#{if cond then val end}` inside string interpolation. Needs AST-level
+/// parent context check (e.g., detecting EmbeddedStatementsNode) to
+/// distinguish block closing from interpolation closing.
 pub struct IfUnlessModifier;
 
 /// Check if a node (or any descendant) contains a heredoc.
@@ -90,8 +107,16 @@ struct DefinedFinder {
 }
 
 impl<'pr> Visit<'pr> for DefinedFinder {
-    fn visit_defined_node(&mut self, _node: &ruby_prism::DefinedNode<'pr>) {
-        self.found = true;
+    fn visit_defined_node(&mut self, node: &ruby_prism::DefinedNode<'pr>) {
+        // RuboCop only skips `defined?` when the argument is a local variable
+        // or method call (`:lvar` or `:send`) that hasn't been previously assigned.
+        // For constants (`JRUBY_VERSION`), class variables (`@@logger`), instance
+        // variables, and global variables, `defined?` doesn't change semantics
+        // in modifier form, so the cop should still flag those.
+        let value = node.value();
+        if value.as_local_variable_read_node().is_some() || value.as_call_node().is_some() {
+            self.found = true;
+        }
     }
 }
 
