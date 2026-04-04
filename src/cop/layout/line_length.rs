@@ -69,6 +69,22 @@ use crate::parse::source::SourceFile;
 /// inside qualified names can create a blocking URI exemption, and nested-URI
 /// merging must stay limited to real query-parameter links like `&url=http://`
 /// instead of merging pipe-delimited records into one fake end-of-line URI.
+///
+/// ## Corpus investigation (2026-04-04)
+///
+/// FNs from four AllowURI edge cases:
+/// 1. Ruby string interpolation `#{var}` — `{` and `}` must be excluded from
+///    URI regex so matches don't span interpolation boundaries.
+/// 2. Merge-boundary tightening — separators containing `"`, `'`, `<`, `>`,
+///    `{`, or `}` indicate context boundaries (HTML tags, string delimiters)
+///    that should prevent merging adjacent URI matches.
+/// 3. RDoc `[url#fragment]` links — Ruby's URI regex includes `]` when the
+///    URI has a fragment (`#`), causing URI.parse to reject the match.
+///    Return None for these so AllowQualifiedName can still independently
+///    exempt lines containing both patterns (e.g. `SQLite3::Database`).
+/// 4. Escaped-slash filter — removed the `is_regex` code-map check that was
+///    incorrectly skipping valid URI matches in non-regex escaped-slash
+///    strings like `"http:\/\/host"`.
 pub struct LineLength;
 
 impl Cop for LineLength {
@@ -222,8 +238,6 @@ fn check_line_lengths(
                             max,
                             indentation_width,
                             line_length,
-                            source.line_start_offset(i + 1),
-                            code_map,
                         )
                     })
                     .flatten();
@@ -430,13 +444,26 @@ fn uri_range_if_applicable(
     max: usize,
     indentation_width: usize,
     line_length: usize,
-    line_start_offset: usize,
-    code_map: &CodeMap,
 ) -> Option<ExemptionRange> {
     let uri_regex = uri_regex?;
-    let last_match =
-        merge_query_linked_uri_matches(line, uri_regex, line_start_offset, code_map).pop()?;
-    let end_pos = extend_end_position(line, last_match.end);
+    let last_match = merge_query_linked_uri_matches(line, uri_regex).pop()?;
+    let extended_end = extend_end_position(line, last_match.end);
+    // Ruby's URI regex includes ']' in the match when the URI has a
+    // fragment (the '#...' part). URI.parse then rejects the result,
+    // so RuboCop doesn't use it for AllowURI exemption. When the URI
+    // has no fragment, the regex excludes ']', and extension through
+    // ']' legitimately reaches end-of-line for exemption (e.g. %w[url]).
+    let extension_text = &line[last_match.end..extended_end];
+    if extension_text.starts_with(']') {
+        let uri_text = &line[last_match.start..last_match.end];
+        if uri_text.contains('#') {
+            // Ruby's URI regex would include ']' here, making URI.parse
+            // reject it. Return None so AllowQualifiedName can still
+            // exempt the line independently.
+            return None;
+        }
+    }
+    let end_pos = extended_end;
     range_if_applicable(
         display_position(line, last_match.start, indentation_width),
         display_position(line, end_pos, indentation_width),
@@ -451,12 +478,7 @@ struct UriMatch {
     end: usize,
 }
 
-fn merge_query_linked_uri_matches(
-    line: &str,
-    uri_regex: &regex::Regex,
-    line_start_offset: usize,
-    code_map: &CodeMap,
-) -> Vec<UriMatch> {
+fn merge_query_linked_uri_matches(line: &str, uri_regex: &regex::Regex) -> Vec<UriMatch> {
     let mut matches: Vec<UriMatch> = Vec::new();
 
     for current in uri_regex.find_iter(line) {
@@ -470,16 +492,17 @@ fn merge_query_linked_uri_matches(
         if text.ends_with(':') && line[current.end()..].starts_with('\\') {
             continue;
         }
-        if text.contains(r":\/\/") && !code_map.is_regex(line_start_offset + current.start()) {
-            continue;
-        }
         if let Some(previous) = matches.last_mut() {
             let previous_text = &line[previous.start..previous.end];
             let separator = &line[previous.end..current.start()];
-            if previous_text.contains('?')
-                && !separator.chars().any(char::is_whitespace)
-                && !separator.contains('|')
-            {
+            // Only merge when the separator contains no boundary characters.
+            // Characters like ", ', <, >, {, } indicate context boundaries
+            // (HTML tags, string delimiters, interpolation) that separate
+            // unrelated URI occurrences.
+            let has_boundary = separator.chars().any(|c| {
+                c.is_whitespace() || matches!(c, '|' | '"' | '\'' | '<' | '>' | '{' | '}')
+            });
+            if previous_text.contains('?') && !has_boundary {
                 previous.end = current.end();
                 continue;
             }
@@ -597,7 +620,7 @@ fn compile_uri_regex(schemes: &[String]) -> Option<regex::Regex> {
     // Case-insensitive matching only on the scheme prefixes (e.g. HTTP:// matches
     // but HTTP::Error does not). Using inline (?i:...) avoids making the entire
     // pattern case-insensitive, which would over-match Ruby constant paths.
-    let pattern = format!(r#"(?i:{})[^\s"'<>\]|]*"#, prefixes);
+    let pattern = format!(r#"(?i:{})[^\s"'<>\]|{{}}]*"#, prefixes);
     regex::Regex::new(&pattern).ok()
 }
 

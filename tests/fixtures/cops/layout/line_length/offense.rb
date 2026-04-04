@@ -68,3 +68,21 @@ raise Puppet::Network::HTTP::Error::HTTPNotFoundError.new(
 
 			@checks ||= self.available_checks.collect { |c| perform_check c }.flatten(1) + children.collect(&:checks).flatten(1)
                                                                                                                      ^ Layout/LineLength: Line is too long. [122/120]
+
+  # Encapsulates data returned from the {APN Feedback Service}[http://developer.apple.com/iphone/library/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/CommunicatingWIthAPS/CommunicatingWIthAPS.html#//apple_ref/doc/uid/TP40008194-CH101-SW3].
+                                                                                                                        ^ Layout/LineLength: Line is too long. [260/120]
+
+  # When supplied with the certificate path and the desired environment, connects to the {APN Feedback Service}[http://developer.apple.com/iphone/library/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/CommunicatingWIthAPS/CommunicatingWIthAPS.html#//apple_ref/doc/uid/TP40008194-CH101-SW3]
+                                                                                                                        ^ Layout/LineLength: Line is too long. [308/120]
+
+      expect(result).to include('<a href="https://www.findagrave.com/cgi-bin/fg.cgi?page=gr&amp;GSln=test&amp;GRid=123456">https://www.findagrave.com/cgi-bin/fg.cgi?page=gr&amp;GSln=test&amp;GRid=123456</a>')
+                                                                                                                        ^ Layout/LineLength: Line is too long. [208/120]
+
+      expect(@article.bibliography).to include('<a href="https://www.findagrave.com/cgi-bin/fg.cgi?page=gr&amp;GSln=test&amp;GRid=123456">https://www.findagrave.com/cgi-bin/fg.cgi?page=gr&amp;GSln=test&amp;GRid=123456</a>')
+                                                                                                                        ^ Layout/LineLength: Line is too long. [223/120]
+
+        expect(@event.tags.last.machine_tag.url).to eq "http://my-calagator.org/defunct?url=https://web.archive.org/web/#{event_date}/http://upcoming.yahoo.com/event/1234"
+                                                                                                                        ^ Layout/LineLength: Line is too long. [171/120]
+
+        expect(@venue.tags.last.machine_tag.url).to eq "http://my-calagator.org/defunct?url=https://web.archive.org/web/#{venue_date}/http://upcoming.yahoo.com/venue/1234"
+                                                                                                                        ^ Layout/LineLength: Line is too long. [171/120]
