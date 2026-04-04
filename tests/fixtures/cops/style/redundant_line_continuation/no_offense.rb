@@ -1,3 +1,13 @@
+=begin
+bundle lock \
+  --add-platform aarch64-linux \
+  --add-platform x86_64-linux
+=end
+
+=begin rdoc
+  ssh key used to login to remote instances\
+=end
+
 foo \
   "string"
 
@@ -58,3 +68,8 @@ foo \
 x = 'hello' \
   'world'
 =end
+
+helper_method \
+  def ordergroups_for_adding
+  Ordergroup.undeleted.order(:name)
+end

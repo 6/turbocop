@@ -206,3 +206,11 @@ include\
   rescue NameError
     Config
   end
+
+raise "Must specify port number!" if @connect_type == :client and \
+                                                                  ^ Style/RedundantLineContinuation: Redundant line continuation.
+  @port.nil?
+
+raise 'Duplicate field names are not allowed!' unless \
+                                                      ^ Style/RedundantLineContinuation: Redundant line continuation.
+  temp_field_names == temp_field_names.uniq
