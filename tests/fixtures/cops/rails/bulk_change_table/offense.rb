@@ -20,3 +20,41 @@ def change
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can use `change_table :users, bulk: true` to combine alter queries.
   remove_column :users, :nickname
 end
+
+def change
+  add_column :users, :twitter_token, :string
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can use `change_table :users, bulk: true` to combine alter queries.
+  add_column :users, :twitter_secret, :string
+end
+
+def change
+  add_column :users, :confirmation_token, :string
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can use `change_table :users, bulk: true` to combine alter queries.
+  add_column :users, :confirmed_at, :datetime
+end
+
+def change
+  add_column :users, :name, :string
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can use `change_table :users, bulk: true` to combine alter queries.
+  add_column :users, :blog, :string
+  add_column :users, :location, :string
+end
+
+def change
+  add_column :users, :lat, :decimal, precision: 8, scale: 6
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can use `change_table :users, bulk: true` to combine alter queries.
+  add_column :users, :lng, :decimal, precision: 9, scale: 6
+end
+
+def change
+  add_column :projects, :featured, :boolean, :default => false
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can use `change_table :projects, bulk: true` to combine alter queries.
+  add_column :projects, :avatar_url, :string
+end
+
+def change
+  add_column :projects, :last_scored, :datetime
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can use `change_table :projects, bulk: true` to combine alter queries.
+  add_column :projects, :fork, :boolean
+  add_column :projects, :github_id, :bigint
+end
