@@ -19,6 +19,12 @@ def test_patch_adds_variant_summary(tmp_path):
             {"department": "Style", "matches": 800, "fp": 8, "fn": 3},
             {"department": "Layout", "matches": 200, "fp": 2, "fn": 2},
         ],
+        "by_cop": [
+            {"cop": "Style/Foo", "matches": 800, "fp": 8, "fn": 3,
+             "perfect_match": False, "diverging": True},
+            {"cop": "Layout/Baz", "matches": 200, "fp": 2, "fn": 2,
+             "perfect_match": False, "diverging": True},
+        ],
     }
     variants = tmp_path / "variants.json"
     variants.write_text(json.dumps({
@@ -78,6 +84,48 @@ def test_patch_variant_rate_always_lte_default(tmp_path):
     dept_variant = corpus["by_department"][0]["variant_match_rate"]
     dept_default = 10000 / default_total
     assert dept_variant <= dept_default
+
+
+def test_patch_computes_variant_perfect_cops(tmp_path):
+    """Per-department variant_perfect_cops counts cops perfect in both default and variants."""
+    corpus = {
+        "summary": {"matches": 100, "fp": 5, "fn": 0},
+        "by_department": [
+            {"department": "Style", "matches": 100, "fp": 5, "fn": 0},
+        ],
+        "by_cop": [
+            # Perfect in default, perfect in variants → variant-perfect
+            {"cop": "Style/A", "matches": 50, "fp": 0, "fn": 0,
+             "perfect_match": True, "diverging": False},
+            # Perfect in default, diverging in variants → variant-diverging
+            {"cop": "Style/B", "matches": 30, "fp": 0, "fn": 0,
+             "perfect_match": True, "diverging": False},
+            # Diverging in default → variant-diverging regardless
+            {"cop": "Style/C", "matches": 20, "fp": 5, "fn": 0,
+             "perfect_match": False, "diverging": True},
+        ],
+    }
+    variants = tmp_path / "variants.json"
+    variants.write_text(json.dumps({
+        "batches": [{
+            "name": "batch_1",
+            "by_cop": [
+                # Style/A: 0 FP+FN → still perfect
+                {"cop": "Style/A", "style_label": "x", "matches": 40, "fp": 0, "fn": 0},
+                # Style/B: has FP → variant-diverging
+                {"cop": "Style/B", "style_label": "y", "matches": 25, "fp": 3, "fn": 0},
+                # Style/C: already diverging in default
+                {"cop": "Style/C", "style_label": "z", "matches": 15, "fp": 2, "fn": 1},
+            ],
+        }]
+    }))
+
+    patch_variant_stats.patch(corpus, variants)
+
+    dept = corpus["by_department"][0]
+    # Style/A is variant-perfect, Style/B and Style/C are variant-diverging
+    assert dept["variant_perfect_cops"] == 1
+    assert dept["variant_diverging_cops"] == 2
 
 
 def test_patch_empty_variants(tmp_path):
