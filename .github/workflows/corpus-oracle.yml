@@ -427,6 +427,8 @@ jobs:
                 --binary "$WORKSPACE/bin/nitrocop" \
                 --batches-dir "$WORKSPACE/bench/corpus/variant_batches" \
                 --results-dir "$WORKSPACE/results" \
+                --manifest "$WORKSPACE/bench/corpus/manifest.jsonl" \
+                --max-variant-repos 1000 \
                 --timeout 600 || true
             fi
 

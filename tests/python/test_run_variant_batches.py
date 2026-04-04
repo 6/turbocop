@@ -12,6 +12,76 @@ run_variant_batches = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(run_variant_batches)
 
 
+def _write_manifest(path, repo_ids):
+    """Write a minimal manifest.jsonl with the given repo IDs."""
+    with open(path, "w") as f:
+        for rid in repo_ids:
+            f.write(json.dumps({"id": rid, "repo_url": f"https://example.com/{rid}", "sha": "abc"}) + "\n")
+
+
+def test_repo_manifest_index_found(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    _write_manifest(manifest, ["repo_a", "repo_b", "repo_c"])
+    assert run_variant_batches._repo_manifest_index("repo_a", manifest) == 0
+    assert run_variant_batches._repo_manifest_index("repo_b", manifest) == 1
+    assert run_variant_batches._repo_manifest_index("repo_c", manifest) == 2
+
+
+def test_repo_manifest_index_not_found(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    _write_manifest(manifest, ["repo_a", "repo_b"])
+    assert run_variant_batches._repo_manifest_index("repo_z", manifest) is None
+
+
+def test_run_variant_batches_skips_repo_beyond_limit(tmp_path):
+    """Repos beyond max_variant_repos are skipped."""
+    manifest = tmp_path / "manifest.jsonl"
+    _write_manifest(manifest, ["repo_0", "repo_1", "repo_2"])
+
+    # repo_2 is at index 2, limit is 2 → should be skipped
+    result = run_variant_batches.run_variant_batches(
+        repo_dir=str(tmp_path),
+        repo_id="repo_2",
+        binary="/nonexistent",
+        batches_dir=str(tmp_path / "batches"),
+        results_dir=str(tmp_path / "results"),
+        manifest=str(manifest),
+        max_variant_repos=2,
+    )
+    assert result == []
+
+
+def test_run_variant_batches_runs_repo_within_limit(tmp_path):
+    """Repos within max_variant_repos are not skipped (but may return [] if no batches)."""
+    manifest = tmp_path / "manifest.jsonl"
+    _write_manifest(manifest, ["repo_0", "repo_1", "repo_2"])
+
+    # repo_1 is at index 1, limit is 2 → should proceed (returns [] because no batch configs)
+    result = run_variant_batches.run_variant_batches(
+        repo_dir=str(tmp_path),
+        repo_id="repo_1",
+        binary="/nonexistent",
+        batches_dir=str(tmp_path / "batches"),
+        results_dir=str(tmp_path / "results"),
+        manifest=str(manifest),
+        max_variant_repos=2,
+    )
+    assert result == []
+
+
+def test_run_variant_batches_no_limit_runs_all(tmp_path):
+    """Without manifest/limit args, no repos are skipped."""
+    # No manifest → proceeds to discover_batches (returns [] because no batch configs)
+    result = run_variant_batches.run_variant_batches(
+        repo_dir=str(tmp_path),
+        repo_id="anything",
+        binary="/nonexistent",
+        batches_dir=str(tmp_path / "batches"),
+        results_dir=str(tmp_path / "results"),
+    )
+    assert result == []
+
+
 def test_discover_batches_empty(tmp_path):
     """No batches in empty directory."""
     assert run_variant_batches.discover_batches(tmp_path) == []

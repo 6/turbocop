@@ -53,6 +53,18 @@ def build_env(repo_dir: str) -> dict[str, str]:
     return env
 
 
+def _repo_manifest_index(repo_id: str, manifest: str | Path) -> int | None:
+    """Return the 0-based index of *repo_id* in the manifest, or None."""
+    with open(manifest) as f:
+        for i, line in enumerate(f):
+            line = line.strip()
+            if not line:
+                continue
+            if json.loads(line).get("id") == repo_id:
+                return i
+    return None
+
+
 def run_variant_batches(
     *,
     repo_dir: str,
@@ -61,11 +73,27 @@ def run_variant_batches(
     batches_dir: str,
     results_dir: str,
     timeout: int = 600,
+    manifest: str | None = None,
+    max_variant_repos: int | None = None,
 ) -> list[dict]:
     """Run all variant batch configs on a repo.
 
+    If *manifest* and *max_variant_repos* are both provided, variants are
+    only run when the repo's position in the manifest is < max_variant_repos.
+    This keeps total runtime manageable by limiting variants to the top N
+    repos (manifest is sorted by stars).
+
     Returns list of {batch_name, nitrocop_ok, rubocop_ok} dicts.
     """
+    if manifest and max_variant_repos is not None:
+        idx = _repo_manifest_index(repo_id, manifest)
+        if idx is None or idx >= max_variant_repos:
+            print(
+                f"Skipping variants for {repo_id} (manifest index {idx}, limit {max_variant_repos})",
+                file=sys.stderr,
+            )
+            return []
+
     batches = discover_batches(batches_dir)
     if not batches:
         return []
@@ -180,6 +208,10 @@ def main():
                         help="Base directory for result output")
     parser.add_argument("--timeout", type=int, default=600,
                         help="Timeout per tool per batch (default: 600s)")
+    parser.add_argument("--manifest",
+                        help="Path to manifest.jsonl for repo index lookup")
+    parser.add_argument("--max-variant-repos", type=int,
+                        help="Only run variants on repos in the first N manifest entries")
     args = parser.parse_args()
 
     results = run_variant_batches(
@@ -189,6 +221,8 @@ def main():
         batches_dir=args.batches_dir,
         results_dir=args.results_dir,
         timeout=args.timeout,
+        manifest=args.manifest,
+        max_variant_repos=args.max_variant_repos,
     )
 
     for r in results:
