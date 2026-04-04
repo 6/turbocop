@@ -1,4 +1,8 @@
-use crate::cop::shared::node_type::CALL_NODE;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+use crate::cop::shared::node_type::{CALL_NODE, CALL_OPERATOR_WRITE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -8,6 +12,18 @@ use crate::parse::source::SourceFile;
 /// Checks that columns listed in `ignored_columns` actually exist in the schema.
 /// Reports offense on each column string/symbol that doesn't exist in the table.
 ///
+/// Prism parses `self.ignored_columns += %w[...]` as `CallOperatorWriteNode`, not
+/// `CallNode`. That meant appended literal word arrays in model class bodies were
+/// missed entirely, including multi-line `%w(...)` lists from Mastodon and Whitehall.
+/// This cop now visits `CALL_OPERATOR_WRITE_NODE` and checks only
+/// `self.ignored_columns += <literal array>` to match RuboCop's `on_op_asgn`.
+///
+/// Corpus runs also invoke nitrocop with overlay configs that can place
+/// `config_dir()` outside the target repo. When that happens, the global schema
+/// singleton is unset because `db/schema.rb` is looked up in the wrong directory.
+/// This cop now falls back to loading `db/schema.rb` relative to the current source
+/// file's repo root when the global schema is unavailable.
+///
 /// ## Synthetic corpus note
 /// RuboCop's SchemaLoader crashes on `t.timestamps` (no arguments) in
 /// db/schema.rb because `Column.new` calls `node.first_argument.str_content`
@@ -15,6 +31,39 @@ use crate::parse::source::SourceFile;
 /// and nitrocop silently skip schema-dependent cops. The synthetic schema was
 /// fixed to use explicit `t.datetime "created_at"` columns instead.
 pub struct UnusedIgnoredColumns;
+
+fn schema_for_source(source: &SourceFile) -> Option<&'static crate::schema::Schema> {
+    if let Some(schema) = crate::schema::get() {
+        return Some(schema);
+    }
+
+    static FALLBACK_SCHEMAS: OnceLock<
+        Mutex<HashMap<PathBuf, Option<&'static crate::schema::Schema>>>,
+    > = OnceLock::new();
+
+    let repo_root = source
+        .path
+        .ancestors()
+        .find(|path| path.join("db/schema.rb").is_file())?
+        .to_path_buf();
+
+    let mut cache = FALLBACK_SCHEMAS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .ok()?;
+
+    if let Some(schema) = cache.get(&repo_root).copied() {
+        return schema;
+    }
+
+    let schema = std::fs::read(repo_root.join("db/schema.rb"))
+        .ok()
+        .and_then(|bytes| crate::schema::Schema::parse(&bytes))
+        .map(|schema| Box::leak(Box::new(schema)) as &'static crate::schema::Schema);
+
+    cache.insert(repo_root, schema);
+    schema
+}
 
 impl Cop for UnusedIgnoredColumns {
     fn name(&self) -> &'static str {
@@ -34,7 +83,7 @@ impl Cop for UnusedIgnoredColumns {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
+        &[CALL_NODE, CALL_OPERATOR_WRITE_NODE]
     }
 
     fn check_node(
@@ -46,39 +95,63 @@ impl Cop for UnusedIgnoredColumns {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let schema = match crate::schema::get() {
+        let schema = match schema_for_source(source) {
             Some(s) => s,
             None => return,
         };
 
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
+        let array_node = if let Some(call) = node.as_call_node() {
+            if call.name().as_slice() != b"ignored_columns=" {
+                return;
+            }
 
-        let method_name = call.name();
-        let method_str = std::str::from_utf8(method_name.as_slice()).unwrap_or("");
+            if call
+                .receiver()
+                .is_none_or(|receiver| receiver.as_self_node().is_none())
+            {
+                return;
+            }
 
-        // Match `self.ignored_columns = [...]`
-        if method_str != "ignored_columns=" {
+            let args = match call.arguments() {
+                Some(arguments) => arguments,
+                None => return,
+            };
+
+            match args
+                .arguments()
+                .iter()
+                .next()
+                .and_then(|arg| arg.as_array_node())
+            {
+                Some(array) => array,
+                None => return,
+            }
+        } else if let Some(op_write) = node.as_call_operator_write_node() {
+            if op_write.read_name().as_slice() != b"ignored_columns"
+                || op_write.binary_operator().as_slice() != b"+"
+            {
+                return;
+            }
+
+            if op_write
+                .receiver()
+                .is_none_or(|receiver| receiver.as_self_node().is_none())
+            {
+                return;
+            }
+
+            match op_write.value().as_array_node() {
+                Some(array) => array,
+                None => return,
+            }
+        } else {
             return;
-        }
-
-        // Get the array argument
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        let array_node = match arg_list.first().and_then(|n| n.as_array_node()) {
-            Some(a) => a,
-            None => return,
         };
 
         // Resolve table name
         let class_name = match crate::schema::find_enclosing_class_name(
             source.as_bytes(),
-            call.location().start_offset(),
+            node.location().start_offset(),
             parse_result,
         ) {
             Some(n) => n,
