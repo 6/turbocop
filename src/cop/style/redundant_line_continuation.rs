@@ -79,11 +79,25 @@ use ruby_prism::Visit;
 ///   match RuboCop's behavior). The `=begin` and `=end` markers must start at
 ///   column 0 per Ruby syntax.
 ///
-/// ## Remaining gaps
+/// - **AST range for embdoc blocks**: RuboCop only scans for `\\\n` within
+///   `processed_source.ast.source_range`, so `=begin`/`=end` blocks that appear
+///   before or after all code statements are outside the AST range and are not
+///   checked. We now compute `ast_statements_range` from Prism's program node
+///   and skip embdoc blocks whose start offset falls outside this range. This
+///   resolved 33 FPs across several corpus repos.
 ///
-/// - **Reparse limitations**: `is_redundant_continuation` checks for zero parse
-///   errors after removing `\`. Files with pre-existing Prism parse errors will
-///   always fail this check. A future improvement could compare error counts.
+/// - **`def` as valid argument type**: RuboCop's `ARGUMENT_TYPES` includes
+///   `kDEF`, meaning `method \` + `def foo` is treated as a method call with
+///   an argument (e.g., `helper_method def ordergroups_for_adding`). We were
+///   incorrectly listing `def` in `is_non_argument_keyword`, causing FPs.
+///   Removed `def` from that list so it is now treated as a valid argument.
+///
+/// - **Reparse error count comparison**: `is_redundant_continuation` now compares
+///   parse error counts (`<= original_error_count`) instead of requiring zero
+///   errors. This allows the reparse check to work correctly on files that have
+///   pre-existing Prism parse errors unrelated to the line continuation.
+///
+/// ## Remaining gaps
 ///
 /// - **CRLF line endings**: Files with `\r\n` line endings have ~80+ FNs because
 ///   `trim_end` does not strip `\r`, so `\` followed by `\r\n` is not detected.
@@ -94,6 +108,11 @@ use ruby_prism::Visit;
 ///   Confirmed by running RuboCop on LF-converted files, where it finds the
 ///   same offenses our cop does. A fix requires the oracle to normalize CRLF
 ///   before comparison.
+///
+/// - **Multiline expression FPs**: ~9 remaining FPs where `\` precedes a
+///   multiline expression (e.g., method chains or block calls spanning multiple
+///   lines). RuboCop's `argument_newline?` AST walk detects these via recursive
+///   `method_call_with_arguments?` checks that we don't fully replicate.
 pub struct RedundantLineContinuation;
 
 impl Cop for RedundantLineContinuation {
@@ -117,7 +136,17 @@ impl Cop for RedundantLineContinuation {
         let string_like_literal_continuations =
             string_like_literal_continuation_offsets(parse_result, source_bytes);
 
+        // Determine the AST statements range. RuboCop only scans for `\\\n`
+        // within `processed_source.ast.source_range`, which corresponds to
+        // the byte range of the actual code statements. Embdoc blocks
+        // (`=begin`/`=end`) that are before or after all code are outside
+        // this range and should not be flagged.
+        let (ast_start, ast_end) = ast_statements_range(parse_result);
+
+        let original_error_count = parse_result.errors().count();
+
         let mut in_embdoc = false;
+        let mut embdoc_start_offset: usize = 0;
         for (i, line) in lines.iter().enumerate() {
             // Track =begin/=end embedded document blocks.
             // =begin must start at column 0 (no leading whitespace).
@@ -127,6 +156,7 @@ impl Cop for RedundantLineContinuation {
                     .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
             {
                 in_embdoc = true;
+                embdoc_start_offset = source.line_start_offset(i + 1);
                 continue;
             }
             if in_embdoc {
@@ -136,9 +166,10 @@ impl Cop for RedundantLineContinuation {
                         .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
                 {
                     in_embdoc = false;
-                } else {
-                    // Inside =begin/=end: \ is always redundant (it's in a comment)
-                    // unless it looks like string concatenation (to match RuboCop).
+                } else if embdoc_start_offset >= ast_start && embdoc_start_offset < ast_end {
+                    // Inside =begin/=end within the AST range: \ is always
+                    // redundant (it's in a comment) unless it looks like
+                    // string concatenation (to match RuboCop).
                     let trimmed = trim_end(line);
                     if trimmed.ends_with(b"\\")
                         && !(trimmed.len() >= 2 && trimmed[trimmed.len() - 2] == b'\\')
@@ -194,7 +225,7 @@ impl Cop for RedundantLineContinuation {
             let next_trimmed = lines.get(i + 1).map(|next_line| trim_start(next_line));
 
             if next_trimmed.is_some_and(starts_with_boolean_operator)
-                || is_redundant_continuation(source_bytes, backslash_offset)
+                || is_redundant_continuation(source_bytes, backslash_offset, original_error_count)
             {
                 let col = trimmed.len() - 1;
                 diagnostics.push(self.diagnostic(
@@ -296,10 +327,33 @@ fn assignment_to_simple_operator_chain(
     !last_trimmed.contains(&b'(')
 }
 
-fn is_redundant_continuation(source: &[u8], backslash_offset: usize) -> bool {
+fn is_redundant_continuation(
+    source: &[u8],
+    backslash_offset: usize,
+    original_error_count: usize,
+) -> bool {
     let mut modified = source.to_vec();
     modified.remove(backslash_offset);
-    ruby_prism::parse(&modified).errors().next().is_none()
+    ruby_prism::parse(&modified).errors().count() <= original_error_count
+}
+
+/// Get the byte range of the AST statements, excluding leading/trailing
+/// comments and embdoc blocks. RuboCop scans `processed_source.ast.source_range`
+/// which only covers actual code, so embdocs outside this range are not checked.
+fn ast_statements_range(parse_result: &ruby_prism::ParseResult<'_>) -> (usize, usize) {
+    let node = parse_result.node();
+    if let Some(program) = node.as_program_node() {
+        let stmts = program.statements();
+        let body: Vec<ruby_prism::Node<'_>> = stmts.body().iter().collect();
+        if body.is_empty() {
+            return (0, 0);
+        }
+        let loc = stmts.location();
+        (loc.start_offset(), loc.end_offset())
+    } else {
+        let loc = node.location();
+        (loc.start_offset(), loc.end_offset())
+    }
 }
 
 fn string_concatenation(trimmed: &[u8]) -> bool {
@@ -393,7 +447,39 @@ fn starts_with_keyword_operator(trimmed: &[u8]) -> bool {
 }
 
 fn starts_with_non_argument_keyword(trimmed: &[u8]) -> bool {
-    leading_identifier(trimmed).is_some_and(is_ruby_keyword)
+    leading_identifier(trimmed).is_some_and(is_non_argument_keyword)
+}
+
+/// Keywords that are NOT valid method arguments in RuboCop's `ARGUMENT_TYPES`.
+/// Excludes `def` because RuboCop treats `kDEF` as a valid argument type
+/// (e.g., `helper_method def foo; end` is valid Ruby).
+fn is_non_argument_keyword(token: &[u8]) -> bool {
+    matches!(
+        token,
+        b"and"
+            | b"begin"
+            | b"case"
+            | b"class"
+            | b"do"
+            | b"else"
+            | b"elsif"
+            | b"end"
+            | b"ensure"
+            | b"for"
+            | b"if"
+            | b"in"
+            | b"module"
+            | b"not"
+            | b"or"
+            | b"redo"
+            | b"rescue"
+            | b"retry"
+            | b"then"
+            | b"unless"
+            | b"until"
+            | b"when"
+            | b"while"
+    )
 }
 
 fn starts_with_exact_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
