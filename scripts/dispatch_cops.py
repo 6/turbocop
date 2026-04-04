@@ -68,6 +68,7 @@ DEPT_TO_VENDOR = {
     "Rails": "vendor/rubocop-rails",
     "RSpec": "vendor/rubocop-rspec",
     "RSpecRails": "vendor/rubocop-rspec_rails",
+    "Rake": "vendor/rubocop-rake",
 }
 
 # Department name → directory name in vendor gem (usually lowercase)

@@ -27,6 +27,7 @@ on:
           - Migration
           - Naming
           - Performance
+          - Rake
           - Rails
           - RSpec
           - RSpecRails

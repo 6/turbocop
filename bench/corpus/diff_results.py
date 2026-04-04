@@ -509,6 +509,7 @@ def main():
             "rubocop-rspec": "3.9.0",
             "rubocop-rspec_rails": "2.32.0",
             "rubocop-factory_bot": "2.28.0",
+            "rubocop-rake": "0.7.1",
         },
         "summary": {
             "total_repos": len(all_ids),
