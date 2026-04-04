@@ -43,8 +43,9 @@ x = a * b**2
 # Setter call without spaces
 x.y = 2
 
-# Extra spaces around = (not aligned)
+# Extra spaces around = with subsequent assignment at different column
 x = 1
+y = 2
 
 # Extra spaces around => (not aligned)
 {'key' => 'val'}
@@ -59,3 +60,8 @@ html_block = if render_partial?
 
 message[:bcc] = 'mikel@bcc.lindsaar.net'
 message[:cc] = 'mikel@cc.lindsaar.net'
+
+# Extra space before << is not valid alignment with = on neighbor line
+t.pattern = 'spec/**/*_spec.rb'
+t.libs << 'spec'
+t.warning = false

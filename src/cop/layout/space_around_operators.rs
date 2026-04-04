@@ -89,6 +89,28 @@ use ruby_prism::Visit;
 /// - Fix: keep operator alignment for extra leading space, use RHS-start
 ///   alignment for assignment-like trailing space, and use pair-start
 ///   alignment for `=>` inside `AssocNode`.
+///
+/// ## Corpus fix (2026-04-04)
+///
+/// FP=2,276 → ~1,794 (-482), FN=2,280 → ~2,134 (-146).
+///
+/// Two root causes identified and fixed:
+///
+/// 1. **Word boundary check too loose for leading space alignment** (FN fix):
+///    `check_alignment_standalone` had a "word/space boundary" check (check 2)
+///    that accepted any word boundary at the same column as alignment. This
+///    incorrectly suppressed detection when e.g. `<<` at col 10 aligned with
+///    `=` at col 10 on a neighbor line. RuboCop's `aligned_operator?` does NOT
+///    use word boundary for leading-space alignment — it only uses identical
+///    operator or cross-operator end-column alignment. Removed check 2.
+///
+/// 2. **Plain `=` assignments flagged without subsequent neighbor** (FP fix):
+///    RuboCop's `excess_leading_space?` for `:assignment` type only flags
+///    when a subsequent assignment at the same indent exists but is NOT
+///    aligned. If no subsequent assignment exists (standalone or end-of-group),
+///    RuboCop returns false (no offense). Added
+///    `has_subsequent_assignment_neighbor` to replicate this behavior for
+///    plain `=` assignments in the text scanner.
 pub struct SpaceAroundOperators;
 
 /// Collect byte offsets of `=` signs that are part of parameter defaults,
@@ -506,6 +528,17 @@ fn check_text_scanner_extra_space(
         multi_before = false;
     }
 
+    // RuboCop-compatible: for plain assignments (=), only flag extra leading space
+    // if there IS a subsequent assignment neighbor at the same indentation that is
+    // NOT aligned. If there's no subsequent assignment, it's standalone or end-of-group
+    // and should not be flagged.
+    if multi_before
+        && allow_trailing_rhs_alignment
+        && !has_subsequent_assignment_neighbor(source, op_start)
+    {
+        multi_before = false;
+    }
+
     if multi_after {
         let mut p = op_end;
         while p < bytes.len() && bytes[p] == b' ' {
@@ -714,16 +747,6 @@ fn check_alignment_standalone(
                         {
                             return true;
                         }
-                        // Check 2: word/space boundary at same column (aligned_words)
-                        if byte_col > 0
-                            && byte_col < line_bytes.len()
-                            && (line_bytes[byte_col - 1] == b' '
-                                || line_bytes[byte_col - 1] == b'\t')
-                            && line_bytes[byte_col] != b' '
-                            && line_bytes[byte_col] != b'\t'
-                        {
-                            return true;
-                        }
                     }
                     // Check 3: cross-operator alignment (operators ending at same char column)
                     if line_has_operator_ending_at_char_col(line_bytes, char_end_col) {
@@ -799,6 +822,99 @@ fn line_has_operator_ending_at_col(line: &[u8], target_end_col: usize) -> bool {
     // `<<` (append operator, treated as assignment-like for alignment)
     if end_byte == b'<' && col >= 2 && line[col - 2] == b'<' {
         return true;
+    }
+    false
+}
+
+/// Check if there is a subsequent (below) assignment-like line at the same
+/// indentation level. This mirrors RuboCop's `aligned_with_subsequent_equals_operator`
+/// which returns `:none` (suppressing the offense) when no subsequent assignment exists.
+///
+/// An "assignment-like line" is one that contains an `=` sign preceded by a
+/// word character (to avoid matching `=` inside strings), at the same indentation.
+fn has_subsequent_assignment_neighbor(source: &SourceFile, op_start: usize) -> bool {
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let (line, _) = source.offset_to_line_col(op_start);
+    let line_idx = line - 1;
+
+    let my_indent = lines[line_idx]
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t')
+        .unwrap_or(0);
+
+    // Scan downward from the line after current
+    let mut check_idx = line_idx + 1;
+    loop {
+        if check_idx >= lines.len() {
+            break;
+        }
+        let line_bytes = lines[check_idx];
+        let first_non_ws = line_bytes.iter().position(|&b| b != b' ' && b != b'\t');
+        match first_non_ws {
+            None => {
+                // Blank line: in RuboCop, a blank line after a relevant-indent line
+                // terminates the search
+                break;
+            }
+            Some(fs) if line_bytes[fs] == b'#' => {
+                // Comment line — skip
+                check_idx += 1;
+                continue;
+            }
+            Some(indent) => {
+                if indent < my_indent {
+                    // Dedented line — stop search
+                    break;
+                }
+                if indent == my_indent {
+                    // Same indent — check if this line has an assignment operator
+                    return line_has_equals_sign(line_bytes);
+                }
+                // Different indent (more indented) — skip (e.g., continuation)
+                check_idx += 1;
+                continue;
+            }
+        }
+    }
+    false
+}
+
+/// Check if a line contains an `=` sign that looks like an assignment or
+/// comparison operator (not inside a string literal). Checks for `=` preceded
+/// by a word character, space, or operator character.
+fn line_has_equals_sign(line: &[u8]) -> bool {
+    for i in 0..line.len() {
+        if line[i] == b'=' {
+            // Skip `=` that is part of `=>` (hash rocket) — we only care about
+            // assignment-like `=`
+            if i + 1 < line.len() && line[i + 1] == b'>' {
+                continue;
+            }
+            // Check that `=` is preceded by a valid operator/word character
+            // (not a `!`, `<`, `>`, or another `=` which would make it `!=`, `<=`, `>=`, `==`)
+            if i > 0 {
+                let prev = line[i - 1];
+                if prev == b' '
+                    || prev == b'\t'
+                    || prev.is_ascii_alphanumeric()
+                    || prev == b'_'
+                    || prev == b')'
+                    || prev == b']'
+                    || prev == b'|'
+                    || prev == b'&'
+                    || prev == b'*'
+                    || prev == b'+'
+                    || prev == b'-'
+                    || prev == b'/'
+                    || prev == b'%'
+                    || prev == b'^'
+                    || prev == b'<'
+                    || prev == b'>'
+                {
+                    return true;
+                }
+            }
+        }
     }
     false
 }

@@ -190,3 +190,15 @@ params = {
   'DateCreatedAfter' =>  Twilio.serialize_iso8601_datetime(date_created_after),
   'DateCreatedBefore' =>  Twilio.serialize_iso8601_datetime(date_created_before),
 }
+
+# Extra leading space before = on standalone assignments (no subsequent assignment neighbor)
+# RuboCop does not flag these because there's no subsequent assignment to misalign with
+x  = 1
+
+projects  = 3.times.map { |i| i }
+
+# Extra leading space before = at end of assignment group (no subsequent assignment)
+@start_token = "["
+@end_token   = "]"
+@assignment  = "="
+@statement_terminator  = ";"

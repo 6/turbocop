@@ -67,9 +67,10 @@ x = a * b ** 2
 x.y =2
     ^ Layout/SpaceAroundOperators: Surrounding space missing for operator `=`.
 
-# Extra spaces around = (not aligned)
+# Extra spaces around = with subsequent assignment at different column
 x  = 1
    ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
+y = 2
 
 # Extra spaces around => (not aligned)
 {'key'  => 'val'}
@@ -91,3 +92,9 @@ message[:bcc] =           'mikel@bcc.lindsaar.net'
               ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
 message[:cc] =            'mikel@cc.lindsaar.net'
              ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
+
+# Extra space before << is not valid alignment with = on neighbor line
+t.pattern = 'spec/**/*_spec.rb'
+t.libs    << 'spec'
+          ^^ Layout/SpaceAroundOperators: Operator `<<` should be surrounded by a single space.
+t.warning = false
