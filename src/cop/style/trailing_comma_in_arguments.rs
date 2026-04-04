@@ -360,4 +360,26 @@ mod tests {
             "comma style should not flag when keyword args share a line (mixed args)"
         );
     }
+
+    #[test]
+    fn offense_comma_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &TrailingCommaInArguments,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/trailing_comma_in_arguments/offense.comma.rb"
+            ),
+            comma_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_comma_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInArguments,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/trailing_comma_in_arguments/no_offense.comma.rb"
+            ),
+            comma_config(),
+        );
+    }
 }

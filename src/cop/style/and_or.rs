@@ -226,4 +226,34 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(AndOr, "cops/style/and_or");
     crate::cop_autocorrect_fixture_tests!(AndOr, "cops/style/and_or");
+
+    fn always_config() -> crate::cop::CopConfig {
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("always".to_string()),
+        );
+        crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_always() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &AndOr,
+            include_bytes!("../../../tests/fixtures/cops/style/and_or/offense.always.rb"),
+            always_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_always() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &AndOr,
+            include_bytes!("../../../tests/fixtures/cops/style/and_or/no_offense.always.rb"),
+            always_config(),
+        );
+    }
 }

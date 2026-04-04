@@ -117,4 +117,49 @@ mod tests {
         TrailingCommaInHashLiteral,
         "cops/style/trailing_comma_in_hash_literal"
     );
+
+    fn multiline_config(style: &str) -> crate::cop::CopConfig {
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "EnforcedStyleForMultiline".to_string(),
+            serde_yml::Value::String(style.to_string()),
+        );
+        crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_comma() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &TrailingCommaInHashLiteral,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/trailing_comma_in_hash_literal/offense.comma.rb"
+            ),
+            multiline_config("comma"),
+        );
+    }
+
+    #[test]
+    fn no_offense_comma() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInHashLiteral,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/trailing_comma_in_hash_literal/no_offense.comma.rb"
+            ),
+            multiline_config("comma"),
+        );
+    }
+
+    #[test]
+    fn offense_consistent_comma() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &TrailingCommaInHashLiteral,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/trailing_comma_in_hash_literal/offense.consistent_comma.rb"
+            ),
+            multiline_config("consistent_comma"),
+        );
+    }
 }

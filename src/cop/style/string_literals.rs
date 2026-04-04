@@ -641,4 +641,38 @@ mod tests {
             diags
         );
     }
+
+    fn double_quotes_config() -> crate::cop::CopConfig {
+        let mut opts = HashMap::new();
+        opts.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("double_quotes".to_string()),
+        );
+        crate::cop::CopConfig {
+            options: opts,
+            ..crate::cop::CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_double_quotes() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &StringLiterals,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/string_literals/offense.double_quotes.rb"
+            ),
+            double_quotes_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_double_quotes() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &StringLiterals,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/string_literals/no_offense.double_quotes.rb"
+            ),
+            double_quotes_config(),
+        );
+    }
 }
