@@ -245,16 +245,20 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
     if total_compared > 0:
         default_pct = format_offense_match_pct(total_matches, total_fp, total_fn)
         summary_line = (
-            f"{default_pct} of compared issue reports matched "
-            f"({format_count_summary(total_matches)} of {format_count_summary(total_compared)})"
+            f"{default_pct} offense match rate "
+            f"({format_count_summary(total_matches)} of {format_count_summary(total_compared)} offenses)"
         )
         if variant_rate is not None:
-            summary_line += f" — {format_match_rate(variant_rate)} including all style variants"
-        summary_line += (
-            f". {perfect_cops:,} of {total_cops:,} cops matched exactly"
+            summary_line += f", {format_match_rate(variant_rate)} across all style variants"
+        summary_line += "."
+        lines.append(summary_line)
+        lines.append("")
+        # Cop-level stats on a separate line for clarity
+        summary_line = (
+            f"{perfect_cops:,} of {total_cops:,} cops matched exactly (default config)"
         )
     else:
-        summary_line = f"{perfect_cops:,} of {total_cops:,} cops matched exactly"
+        summary_line = f"{perfect_cops:,} of {total_cops:,} cops matched exactly (default config)"
     if diverging_cops > 0:
         summary_line += f"; {diverging_cops:,} differed"
     if no_data_cops > 0:
