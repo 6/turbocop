@@ -255,6 +255,9 @@ def _get_corpus_dir() -> Path:
     return _CLONE_DIR if _CLONE_DIR is not None else CORPUS_DIR
 
 
+_STYLE_CONFIG_OVERRIDE: str | None = None
+
+
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
     """Run nitrocop on a single repo via the shared corpus runner."""
     cop_name, repo_dir = args
@@ -263,6 +266,7 @@ def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
     result = _run_corpus_nitrocop(
         repo_dir, cop=cop_name, binary=str(NITROCOP_BIN), timeout=120,
         cwd=cwd,
+        config_override=_STYLE_CONFIG_OVERRIDE,
     )
     return (repo_id, result["count"])
 
@@ -703,6 +707,22 @@ def spot_check_examples(cop_name: str, data: dict) -> tuple[int, int, int, int, 
     return fp_remain, fp_resolved, fn_remain, fn_resolved, fp_unchecked, fn_unchecked
 
 
+def generate_style_override_config(cop_name: str, param: str, value: str) -> str:
+    """Generate a temporary config file that overrides a single style parameter.
+
+    Returns the path to the temp file. The file inherits from the baseline
+    config and overrides only the specified cop's parameter.
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yml", prefix="nitrocop_style_", delete=False,
+    ) as f:
+        f.write(f"inherit_from: {BASELINE_CONFIG}\n\n")
+        f.write(f"{cop_name}:\n")
+        f.write(f"  {param}: {value}\n")
+        return f.name
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Check a cop against the corpus for aggregate count regressions")
@@ -736,7 +756,28 @@ def main():
                         help="Pass the gate when per-repo regressions are offset by "
                              "improvements elsewhere (net FP/FN did not increase). "
                              "Without this flag, ANY per-repo regression fails.")
+    parser.add_argument("--style", type=str, default=None, metavar="PARAM=VALUE",
+                        help="Override a single cop config parameter for both nitrocop "
+                             "and rubocop. E.g., --style EnforcedStyleForMultiline=comma. "
+                             "Generates a temporary config inheriting from the baseline.")
     args = parser.parse_args()
+
+    # Declare all globals used in this function up front (Python requires
+    # global declarations before any assignment to the name in the function).
+    global _USE_REPO_CWD, _STYLE_CONFIG_OVERRIDE, _CLONE_DIR
+
+    # Parse --style into a temp config override if specified.
+    style_config_override: str | None = None
+    if args.style:
+        if "=" not in args.style:
+            print("ERROR: --style must be PARAM=VALUE (e.g., EnforcedStyle=comma)", file=sys.stderr)
+            sys.exit(1)
+        style_param, style_value = args.style.split("=", 1)
+        style_config_override = generate_style_override_config(
+            args.cop, style_param, style_value,
+        )
+        print(f"Style override: {style_param}={style_value} (config: {style_config_override})",
+              file=sys.stderr)
 
     # --rerun implies --quick unless --all-repos is explicitly set.
     if args.rerun and not args.all_repos:
@@ -794,8 +835,10 @@ def main():
                   f"auto-enabling --repo-cwd", file=sys.stderr)
             args.repo_cwd = True
     if args.repo_cwd:
-        global _USE_REPO_CWD
         _USE_REPO_CWD = True
+
+    if style_config_override:
+        _STYLE_CONFIG_OVERRIDE = style_config_override
 
     ensure_binary()
 
@@ -803,7 +846,6 @@ def main():
     if args.rerun:
         if args.clone:
             # Clone into temp dir with oracle-identical path structure
-            global _CLONE_DIR
             tmpdir = clone_repos_for_cop(
                 args.cop, data,
                 shard_index=args.shard_index, total_shards=args.total_shards,

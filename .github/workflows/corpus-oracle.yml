@@ -15,6 +15,10 @@ on:
       repo_filter:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
+      run_style_variants:
+        description: "Run style-variant batch testing (tests all EnforcedStyle values)"
+        type: boolean
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -57,10 +61,11 @@ jobs:
           python3 << 'PYEOF'
           import json, os, sys, hashlib
 
-          # 30 repos/batch → ~187 batches. Rubocop cache is consolidated
+          # 25 repos/batch → ~220 batches. More shards = less time per shard
+          # when style-variant batches are enabled. Rubocop cache is consolidated
           # (not per-batch), so batch size can be changed freely without
-          # causing cold caches.
-          BATCH_SIZE = 30
+          # causing cold caches. GHA matrix limit is 256.
+          BATCH_SIZE = 25
 
           repos = []
           with open('bench/corpus/manifest.jsonl') as f:
@@ -154,6 +159,10 @@ jobs:
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
+      - name: Generate variant batch configs
+        if: ${{ github.event.inputs.run_style_variants == 'true' }}
+        run: python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_batches/
+
       - name: Export nitrocop cop list
         run: bin/nitrocop --list-cops > nitrocop-cops.txt
 
@@ -236,6 +245,8 @@ jobs:
 
       - name: Run batch
         id: run-batch
+        env:
+          RUN_STYLE_VARIANTS: ${{ github.event.inputs.run_style_variants || 'false' }}
         run: |
           mkdir -p results/nitrocop results/rubocop results/ig-nitrocop results/ig-rubocop results/ig-context rubocop-cache
 
@@ -408,6 +419,17 @@ jobs:
               --output "results/ig-context/${REPO_ID}.json" \
               --context-lines 7 \
               2>/dev/null || true
+
+            # ── Style-variant batch runs (opt-in via run_style_variants input) ──
+            if [ "$RUN_STYLE_VARIANTS" = "true" ]; then
+              python3 bench/corpus/run_variant_batches.py \
+                --repo-dir "$ABS_DEST" \
+                --repo-id "$REPO_ID" \
+                --binary "$WORKSPACE/bin/nitrocop" \
+                --batches-dir "$WORKSPACE/bench/corpus/variant_batches" \
+                --results-dir "$WORKSPACE/results" \
+                --timeout 600 || true
+            fi
 
             # Free disk space between repos
             rm -rf "$DEST"
@@ -670,6 +692,41 @@ jobs:
             echo "No include-gated results to merge"
           fi
 
+      - name: Diff style-variant results
+        run: |
+          # Process each variant batch that has results
+          for NC_DIR in all-results/results/variant-nitrocop-variant_batch_*; do
+            [ -d "$NC_DIR" ] || continue
+            BATCH_NAME=$(basename "$NC_DIR" | sed 's/variant-nitrocop-//')
+            RC_DIR="all-results/results/variant-rubocop-${BATCH_NAME}"
+            if [ ! -d "$RC_DIR" ]; then
+              echo "No rubocop results for $BATCH_NAME"
+              continue
+            fi
+            COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
+            echo "Diffing style-variant batch: $BATCH_NAME"
+            python3 bench/corpus/diff_results.py \
+              --nitrocop-dir "$NC_DIR" \
+              --rubocop-dir "$RC_DIR" \
+              --manifest bench/corpus/manifest.jsonl \
+              --output-json "style-variant-${BATCH_NAME}.json" \
+              --output-md "style-variant-${BATCH_NAME}.md" \
+              ${COP_LIST:+--cop-list "$COP_LIST"} || true
+          done
+
+          # Merge all variant batch results into a single summary
+          python3 -c "
+          from pathlib import Path; import json
+          from bench.corpus.run_variant_batches import merge_variant_results
+          files = sorted(Path('.').glob('style-variant-variant_batch_*.json'))
+          if not files:
+              print('No style-variant results to merge')
+          else:
+              merged = merge_variant_results(files)
+              Path('style-variant-results.json').write_text(json.dumps(merged, indent=2))
+              print(f'Merged {len(files)} variant batch results')
+          "
+
       - name: Generate tiers.json
         run: |
           python3 bench/corpus/gen_tiers.py \
@@ -711,6 +768,8 @@ jobs:
             corpus-results.md
             include-gated-results.json
             include-gated-results.md
+            style-variant-results.json
+            style-variant-*.md
             tiers.json
             bench/synthetic/synthetic-results.json
             docs/corpus.md
@@ -877,6 +936,8 @@ jobs:
             corpus-results.md
             include-gated-results.json
             include-gated-results.md
+            style-variant-results.json
+            style-variant-*.md
             tiers.json
             bench/synthetic/synthetic-results.json
             docs/corpus.md
