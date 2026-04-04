@@ -82,6 +82,22 @@ const PUBLIC_MODIFIERS: &[&[u8]] = &[b"module_function ", b"ruby2_keywords "];
 ///    modifiers like `def foo; end if false`. RuboCop associates comments above those lines
 ///    with the wrapping call/modifier node, not the inner `def`, so they must still be
 ///    reported as undocumented.
+///
+/// **Investigation (2026-04-04):** 94 FP, 63 FN.
+/// Root causes of remaining FPs: `wrapped_comment_depth` and `inline_non_public_depth`
+/// leaked through scope boundaries (class, module, def bodies). For example, a postfix
+/// modifier like `class Hash ... end unless defined? ActiveSupport` incremented
+/// `wrapped_comment_depth`, which then propagated into the class body, causing all
+/// documented methods inside to be falsely flagged. Similarly, `private def wrapper` leaked
+/// `inline_non_public_depth` into nested singleton method defs inside the wrapper body.
+/// Fix: save/restore both counters at class, module, singleton class, and def node
+/// boundaries so that nested scopes start fresh.
+///
+/// Root cause of some remaining FNs: comment lines with an inline `# rubocop:disable`
+/// directive (e.g., `# Some doc # rubocop:disable Layout/LineLength`) were treated as
+/// documentation by nitrocop but RuboCop's `DirectiveComment` matches `# rubocop:` anywhere
+/// in the comment text, treating the entire line as a directive. Fix: check for
+/// `# rubocop:` as a substring in the comment text.
 pub struct DocumentationMethod;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -215,6 +231,13 @@ pub fn is_annotation_or_directive_case_insensitive(comment: &str) -> bool {
         || text.starts_with("shareable_constant_value:")
         || text.starts_with("rubocop:")
     {
+        return true;
+    }
+
+    // RuboCop's DirectiveComment matches `# rubocop:` anywhere in the comment text,
+    // so a doc comment with an inline rubocop:disable (e.g., `# Some doc # rubocop:disable X`)
+    // is treated as a directive, not documentation.
+    if text.contains("# rubocop:") {
         return true;
     }
 
@@ -461,7 +484,49 @@ impl<'pr> Visit<'pr> for DocumentationMethodVisitor<'_> {
             .remove(&node.location().start_offset())
             .flatten();
         self.check_def(node, visibility);
+        // Reset wrapped_comment_depth and inline_non_public_depth when entering
+        // a def body. Comments inside a nested scope belong to the inner methods,
+        // not to the outer wrapper. Without this reset, postfix modifiers like
+        // `public_class_method def self.pry ... end` would leak wrapped_comment_depth
+        // into all methods defined in the def body, and `private def foo ... end`
+        // would leak inline_non_public_depth into nested singleton method defs.
+        let saved_wrapped = self.wrapped_comment_depth;
+        let saved_inline = self.inline_non_public_depth;
+        self.wrapped_comment_depth = 0;
+        self.inline_non_public_depth = 0;
         ruby_prism::visit_def_node(self, node);
+        self.wrapped_comment_depth = saved_wrapped;
+        self.inline_non_public_depth = saved_inline;
+    }
+
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        let saved_wrapped = self.wrapped_comment_depth;
+        let saved_inline = self.inline_non_public_depth;
+        self.wrapped_comment_depth = 0;
+        self.inline_non_public_depth = 0;
+        ruby_prism::visit_class_node(self, node);
+        self.wrapped_comment_depth = saved_wrapped;
+        self.inline_non_public_depth = saved_inline;
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        let saved_wrapped = self.wrapped_comment_depth;
+        let saved_inline = self.inline_non_public_depth;
+        self.wrapped_comment_depth = 0;
+        self.inline_non_public_depth = 0;
+        ruby_prism::visit_module_node(self, node);
+        self.wrapped_comment_depth = saved_wrapped;
+        self.inline_non_public_depth = saved_inline;
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        let saved_wrapped = self.wrapped_comment_depth;
+        let saved_inline = self.inline_non_public_depth;
+        self.wrapped_comment_depth = 0;
+        self.inline_non_public_depth = 0;
+        ruby_prism::visit_singleton_class_node(self, node);
+        self.wrapped_comment_depth = saved_wrapped;
+        self.inline_non_public_depth = saved_inline;
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {

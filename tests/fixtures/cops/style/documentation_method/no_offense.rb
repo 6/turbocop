@@ -308,3 +308,47 @@ end
 def method_with_arrow_comment
   42
 end
+
+# Postfix `unless` on class should not leak wrapped_comment_depth into class body
+class HashExtensions
+  # Returns a new hash with transformed keys
+  def transform_keys
+    42
+  end
+
+  # Destructively transforms keys
+  def transform_keys!
+    42
+  end
+end unless defined? ActiveSupport
+
+# Postfix `if` on class should not leak wrapped_comment_depth into class body
+class ConditionalClass
+  # Documented method inside conditional class
+  def conditional_documented
+    42
+  end
+end if true
+
+# Methods nested inside a call-wrapped def body should check docs independently
+module PWN
+  private_class_method def self.pry
+    Pry.class_eval do
+      # This is documentation for evaluate_ruby
+      def evaluate_ruby(code)
+        42
+      end
+    end
+  end
+end
+
+# Methods inside private def wrapper body are NOT themselves private
+module Jb
+  module CollectionRendererExtension
+    private def render_collection(template)
+      obj = super
+      # Documented singleton method
+      def obj.body; []; end
+    end
+  end
+end
