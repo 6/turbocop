@@ -57,10 +57,16 @@ impl SaveBangData {
 /// create-in-local-assignment path and `on_send` for everything else. See the RuboCop source
 /// at `vendor/rubocop-rails/lib/rubocop/cop/rails/save_bang.rb`.
 ///
-/// ## Corpus results
+/// ## Recent fix
 ///
-/// FP=0, FN=0 (99.98%+ match rate). See previous doc comments in git history for
-/// detailed investigation notes on each edge case.
+/// The VariableForce pre-collector must keep bare local assignments like
+/// `record = create(attrs)`, `record = create(*args)`, and command-call forms
+/// like `record = create name: "x"`. RuboCop flags those when no later
+/// `persisted?` check exists. A previous implementation incorrectly required a
+/// receiver on the create call, which skipped these assignments entirely.
+///
+/// FactoryBot-style literal-leading signatures such as `create :user, ...`
+/// remain excluded by the signature check, so this fix stays narrow.
 pub struct SaveBang;
 
 /// Info about a create-type persist call in a local variable assignment.
@@ -307,13 +313,6 @@ impl PreComputeCollector {
     ) -> Option<&'static str> {
         let name = call.name().as_slice();
         let method_name = Self::create_method_name(name)?;
-
-        // Bare calls (no receiver) are not persist methods — e.g. FactoryBot's create().
-        // RuboCop's allowed_receiver? returns false for nil receivers, which means
-        // persist_method? still passes, but on_send's return_value_assigned? checks
-        // the parent assignment which filters these out. However, our VF path
-        // pre-collects assignments, so we must filter here.
-        call.receiver()?;
 
         // Check expected_signature: no arguments, or one hash/non-literal argument.
         let has_block_arg = call
@@ -1359,8 +1358,8 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(SaveBang::new(), "cops/rails/save_bang");
 
-    /// Regression: bare create (no receiver) like FactoryBot should not be flagged
-    /// in VF create-in-assignment path (was causing 11k FP).
+    /// Regression: FactoryBot-style bare create with a literal leading argument
+    /// should stay exempt in the VF create-in-assignment path.
     #[test]
     fn bare_create_in_assignment_not_flagged() {
         let source = b"describe Project do
@@ -1379,6 +1378,30 @@ end
                 .iter()
                 .map(|d| format!("{}:{}: {}", d.location.line, d.location.column, d.message))
                 .collect::<Vec<_>>()
+        );
+    }
+
+    /// Regression: bare create in a local assignment with an ActiveRecord-like
+    /// signature must still be checked by the VF path.
+    #[test]
+    fn bare_create_in_assignment_flagged() {
+        let source = b"feature = create(hash.except(:id))\n";
+        let diagnostics = crate::testutil::run_cop_full(&SaveBang::new(), source);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected 1 offense for bare create assignment, got {}: {:?}",
+            diagnostics.len(),
+            diagnostics
+                .iter()
+                .map(|d| format!("{}:{}: {}", d.location.line, d.location.column, d.message))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diagnostics[0].location.line, 1);
+        assert_eq!(diagnostics[0].location.column, 10);
+        assert_eq!(
+            diagnostics[0].message,
+            "Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`."
         );
     }
 
