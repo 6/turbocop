@@ -61,11 +61,10 @@ jobs:
           python3 << 'PYEOF'
           import json, os, sys, hashlib
 
-          # 25 repos/batch → ~220 batches. More shards = less time per shard
-          # when style-variant batches are enabled. Rubocop cache is consolidated
+          # 30 repos/batch → ~187 batches. Rubocop cache is consolidated
           # (not per-batch), so batch size can be changed freely without
           # causing cold caches. GHA matrix limit is 256.
-          BATCH_SIZE = 25
+          BATCH_SIZE = 30
 
           repos = []
           with open('bench/corpus/manifest.jsonl') as f:
@@ -117,7 +116,7 @@ jobs:
   oracle-repo:
     needs: [build-nitrocop, compute-matrix]
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
