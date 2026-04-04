@@ -684,4 +684,39 @@ mod tests {
             "nested hash in keyword arg should use paren context"
         );
     }
+
+    fn consistent_config() -> CopConfig {
+        use std::collections::HashMap;
+        CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("consistent".into()),
+            )]),
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_consistent_fixture() {
+        use crate::testutil::assert_cop_offenses_full_with_config;
+        assert_cop_offenses_full_with_config(
+            &FirstHashElementIndentation,
+            include_bytes!(
+                "../../../tests/fixtures/cops/layout/first_hash_element_indentation/offense.consistent.rb"
+            ),
+            consistent_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_consistent_fixture() {
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        assert_cop_no_offenses_full_with_config(
+            &FirstHashElementIndentation,
+            include_bytes!(
+                "../../../tests/fixtures/cops/layout/first_hash_element_indentation/no_offense.consistent.rb"
+            ),
+            consistent_config(),
+        );
+    }
 }

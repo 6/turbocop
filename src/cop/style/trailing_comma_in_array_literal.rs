@@ -331,4 +331,26 @@ mod tests {
             diff_comma_config(),
         );
     }
+
+    #[test]
+    fn offense_comma_fixture() {
+        assert_cop_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/trailing_comma_in_array_literal/offense.comma.rb"
+            ),
+            comma_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_comma_fixture() {
+        assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/trailing_comma_in_array_literal/no_offense.comma.rb"
+            ),
+            comma_config(),
+        );
+    }
 }
