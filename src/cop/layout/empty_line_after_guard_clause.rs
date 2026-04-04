@@ -397,6 +397,35 @@ use crate::parse::source::SourceFile;
 ///    statement, suppressing a real offense. Fix: keep bare `>` / `<`
 ///    continuation handling for comparison operators, but reject Ruby char
 ///    literals `?>` and `?<`.
+///
+/// ## Corpus investigation (2026-04-04: FP=5 → FP=0)
+///
+/// Five FP root causes identified and fixed:
+///
+/// 1. **`count_bracket_depth_change` missing percent literal support**: `%{you'l ...}`
+///    has an apostrophe inside that triggered false single-quote tracking, hiding the
+///    closing `}` and creating depth=1. Added percent literal handling (matching
+///    `match_percent_literal`) so `%{...}`, `%q{...}`, etc. are properly skipped.
+///
+/// 2. **`count_bracket_depth_change` missing inline comment handling**: inline comments
+///    like `# (see 14 days / 7 days)` had brackets and regex-starting `/` that confused
+///    the depth counter. Added `b'#' => break` to stop counting at inline comments.
+///
+/// 3. **`count_top_level_word_occurrences` missing regex and percent literal support**:
+///    regex `/\A\'|\'\Z/` had `'` chars treated as single-quote delimiters, hiding the
+///    modifier `if` keyword. Added regex tracking (same heuristic as other functions)
+///    and percent literal tracking so keywords inside literals are properly skipped.
+///
+/// 4. **`check_ternary_guard` missing heredoc detection**: ternary `cond ? raise(<<-HEREDOC) : val`
+///    had the IfNode ending on the ternary line (not the heredoc end), causing the heredoc
+///    body to be treated as the "next code line" after the guard. Added
+///    `find_heredoc_end_line` traversal to use the heredoc end marker as the effective
+///    end line, matching the non-ternary path.
+///
+/// 5. **Trailing `\` treated as code after multiline guard**: for `next if cond \`
+///    spanning multiple lines via backslash continuation, the AST location ends before
+///    the `\`, so the trailing `\` was treated as "code after the guard" → false offense.
+///    Added explicit check for `trailing == b"\\"` to skip the line continuation marker.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -453,6 +482,7 @@ impl Cop for EmptyLineAfterGuardClause {
                             // Ternary with guard in if-branch
                             return self.check_ternary_guard(
                                 source,
+                                node,
                                 &if_node.location(),
                                 diagnostics,
                                 &mut corrections,
@@ -686,7 +716,12 @@ impl Cop for EmptyLineAfterGuardClause {
                         if is_only_closing_delimiters_then_optional_comment(trailing) {
                             return;
                         }
-                        if starts_with_keyword(trailing, b"if")
+                        // Trailing backslash is a line continuation marker, not code
+                        if trailing == b"\\" {
+                            // The guard's AST location ends before the `\`, but the
+                            // `\` joins this line with the next. Ignore it.
+                            // (handled normally via next-line blank check)
+                        } else if starts_with_keyword(trailing, b"if")
                             || starts_with_keyword(trailing, b"unless")
                             || starts_with_keyword(trailing, b"rescue")
                         {
@@ -877,6 +912,7 @@ impl EmptyLineAfterGuardClause {
     fn check_ternary_guard(
         &self,
         source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
         loc: &ruby_prism::Location<'_>,
         diagnostics: &mut Vec<Diagnostic>,
         corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
@@ -884,36 +920,43 @@ impl EmptyLineAfterGuardClause {
         let lines: Vec<&[u8]> = source.lines().collect();
         let (end_line, end_col) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
 
-        // Check for embedded expression on same line
-        if let Some(cur_line) = lines.get(end_line.saturating_sub(1)) {
-            let after_pos = end_col + 1;
-            if after_pos < cur_line.len() {
-                let rest = &cur_line[after_pos..];
-                if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
-                    if rest[idx] != b'#' {
-                        return;
+        // Check for heredoc arguments in the ternary — if present, the effective
+        // end line is after the heredoc closing delimiter.
+        let heredoc_end_line = find_heredoc_end_line(source, node);
+        let effective_end_line = heredoc_end_line.unwrap_or(end_line);
+
+        // Check for embedded expression on same line (only when no heredoc)
+        if heredoc_end_line.is_none() {
+            if let Some(cur_line) = lines.get(end_line.saturating_sub(1)) {
+                let after_pos = end_col + 1;
+                if after_pos < cur_line.len() {
+                    let rest = &cur_line[after_pos..];
+                    if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
+                        if rest[idx] != b'#' {
+                            return;
+                        }
                     }
                 }
             }
         }
 
-        if end_line >= lines.len() {
+        if effective_end_line >= lines.len() {
             return;
         }
 
-        let next_line = lines[end_line];
+        let next_line = lines[effective_end_line];
         if util::is_blank_or_whitespace_line(next_line) {
             return;
         }
 
         if is_allowed_directive_comment(next_line)
-            && (end_line + 1 >= lines.len()
-                || util::is_blank_or_whitespace_line(lines[end_line + 1]))
+            && (effective_end_line + 1 >= lines.len()
+                || util::is_blank_or_whitespace_line(lines[effective_end_line + 1]))
         {
             return;
         }
 
-        if let Some((code_content, _)) = find_next_code_line(&lines, end_line) {
+        if let Some((code_content, _)) = find_next_code_line(&lines, effective_end_line) {
             if is_scope_close_or_clause_keyword(code_content) {
                 return;
             }
@@ -929,7 +972,7 @@ impl EmptyLineAfterGuardClause {
             "Add empty line after guard clause.".to_string(),
         );
         if let Some(corr) = corrections {
-            if let Some(offset) = source.line_col_to_offset(end_line + 1, 0) {
+            if let Some(offset) = source.line_col_to_offset(effective_end_line + 1, 0) {
                 corr.push(crate::correction::Correction {
                     start: offset,
                     end: offset,
@@ -2009,9 +2052,30 @@ fn count_bracket_depth_change(line: &[u8]) -> i32 {
     let mut in_single_quote = false;
     let mut in_double_quote = false;
     let mut in_regex = false;
+    let mut in_percent_literal: Option<(u8, u8, usize)> = None;
     let mut i = 0;
     while i < line.len() {
         let b = line[i];
+        if let Some((open, close, nested_depth)) = in_percent_literal.as_mut() {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if *open != *close && b == *open {
+                *nested_depth += 1;
+                i += 1;
+                continue;
+            }
+            if b == *close {
+                if *nested_depth == 0 {
+                    in_percent_literal = None;
+                } else {
+                    *nested_depth -= 1;
+                }
+            }
+            i += 1;
+            continue;
+        }
         if in_single_quote {
             if b == b'\\' {
                 i += 1; // skip escaped char
@@ -2032,8 +2096,16 @@ fn count_bracket_depth_change(line: &[u8]) -> i32 {
             }
         } else {
             match b {
+                b'#' => break, // inline comment — stop counting
                 b'\'' => in_single_quote = true,
                 b'"' => in_double_quote = true,
+                b'%' => {
+                    if let Some((next_i, open, close)) = match_percent_literal(line, i) {
+                        in_percent_literal = Some((open, close, 0));
+                        i = next_i;
+                        continue;
+                    }
+                }
                 b'/' => {
                     // Heuristic: `/` starts a regex if preceded by operator, `(`, `=`, `,`,
                     // `!`, `~`, space+operator, or at start of expression
@@ -2379,11 +2451,34 @@ fn count_top_level_word_occurrences(haystack: &[u8], word: &[u8]) -> usize {
     let mut depth: i32 = 0;
     let mut in_single_quote = false;
     let mut in_double_quote = false;
+    let mut in_regex = false;
+    let mut in_percent_literal: Option<(u8, u8, usize)> = None;
     let mut count = 0;
     let mut i = 0;
 
     while i < haystack.len() {
         let b = haystack[i];
+
+        if let Some((open, close, nested_depth)) = in_percent_literal.as_mut() {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if *open != *close && b == *open {
+                *nested_depth += 1;
+                i += 1;
+                continue;
+            }
+            if b == *close {
+                if *nested_depth == 0 {
+                    in_percent_literal = None;
+                } else {
+                    *nested_depth -= 1;
+                }
+            }
+            i += 1;
+            continue;
+        }
 
         if in_single_quote {
             if b == b'\\' {
@@ -2407,6 +2502,17 @@ fn count_top_level_word_occurrences(haystack: &[u8], word: &[u8]) -> usize {
             continue;
         }
 
+        if in_regex {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'/' {
+                in_regex = false;
+            }
+            i += 1;
+            continue;
+        }
+
         match b {
             b'\'' => {
                 in_single_quote = true;
@@ -2417,6 +2523,40 @@ fn count_top_level_word_occurrences(haystack: &[u8], word: &[u8]) -> usize {
                 in_double_quote = true;
                 i += 1;
                 continue;
+            }
+            b'%' => {
+                if let Some((next_i, open, close)) = match_percent_literal(haystack, i) {
+                    in_percent_literal = Some((open, close, 0));
+                    i = next_i;
+                    continue;
+                }
+            }
+            b'/' => {
+                let is_regex_start = if i == 0 {
+                    true
+                } else {
+                    let prev = haystack[i - 1];
+                    matches!(
+                        prev,
+                        b'=' | b'('
+                            | b','
+                            | b'!'
+                            | b'~'
+                            | b' '
+                            | b'\t'
+                            | b'|'
+                            | b'&'
+                            | b'{'
+                            | b'['
+                            | b';'
+                            | b':'
+                    )
+                };
+                if is_regex_start {
+                    in_regex = true;
+                    i += 1;
+                    continue;
+                }
             }
             b'(' | b'{' | b'[' => {
                 depth += 1;
