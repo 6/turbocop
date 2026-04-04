@@ -13,3 +13,17 @@ task :bar do
     end
   end
 end
+
+task :baz do
+  bar = Class.new {
+    def increment
+    end
+  }.new
+end
+
+namespace :ns do
+  Module.new do
+    def helper
+    end
+  end
+end
