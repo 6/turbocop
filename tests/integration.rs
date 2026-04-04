@@ -1660,6 +1660,55 @@ fn global_exclude_skips_file() {
 }
 
 #[test]
+fn global_exclude_not_counted_in_file_count() {
+    let dir = temp_dir("global_exclude_count");
+    let dir_str = dir.display();
+    let config_yaml = format!("AllCops:\n  Exclude:\n    - '{dir_str}/vendor/**'\n");
+    let config_path = write_file(&dir, ".rubocop.yml", config_yaml.as_bytes());
+    // Two files: one excluded, one not
+    let vendor_file = write_file(&dir, "vendor/foo.rb", b"x = 1  \n");
+    let app_file = write_file(&dir, "app.rb", b"x = 1  \n");
+
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    // Simulate what lib.rs now does: filter before passing to run_linter
+    let all_files = vec![vendor_file, app_file];
+    let cop_filters =
+        config.build_cop_filters(&registry, &TierMap::load(), args.preview, &args.paths);
+    let effective: Vec<PathBuf> = all_files
+        .iter()
+        .filter(|f| !cop_filters.is_globally_excluded(f))
+        .cloned()
+        .collect();
+
+    let result = run_linter(
+        &discovered(&effective),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+
+    assert_eq!(
+        result.file_count, 1,
+        "Globally-excluded files should not be counted; expected 1, got {}",
+        result.file_count
+    );
+    assert!(
+        !result.diagnostics.is_empty(),
+        "The non-excluded file should produce offenses"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn user_include_override_widens_scope() {
     let dir = temp_dir("user_include_override");
     // CreateTableWithTimestamps defaults to Include: db/migrate/**/*.rb
