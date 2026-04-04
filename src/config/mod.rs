@@ -331,10 +331,24 @@ impl CopFilterSet {
         // config with CWD=/tmp), strip_prefix(base_dir) can't produce the
         // right relative path. Try each scan root (CLI target directory) as
         // a fallback. NOT used for Exclude — see comment at is_globally_excluded.
+        //
+        // Only use this fallback when the resulting path has at least one
+        // directory component (e.g., `spec/foo.rb`). Bare filenames at the
+        // scan root (e.g., `Rakefile`) must NOT match via this fallback —
+        // RuboCop only matches bare-name Include patterns (like rubocop-rake's
+        // `Rakefile`) when base_dir is the repo root, which requires CWD to
+        // be the project directory for non-.rubocop configs. In normal usage
+        // (CWD = project root), bare filenames already match via rel_path or
+        // rel_to_base, so this restriction has no effect on end users.
         let rel_to_scan_root: Option<&Path> = self
             .scan_roots
             .iter()
-            .find_map(|sr| path.strip_prefix(sr).ok());
+            .find_map(|sr| path.strip_prefix(sr).ok())
+            .filter(|rel| {
+                // Require at least one directory component — reject bare filenames.
+                // Path::parent() returns Some("") for bare names like "Rakefile".
+                rel.parent().is_some_and(|p| !p.as_os_str().is_empty())
+            });
 
         // Include: file must match on at least one path form.
         // This supports both absolute patterns (/tmp/test/db/**) and
@@ -5687,6 +5701,61 @@ mod tests {
         assert!(
             !filters_with_scan.is_cop_match(idx, Path::new("/fake/repo/app/foo.rb")),
             "app/foo.rb should NOT match Include spec/**/*.rb even with scan_roots"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scan_root_skips_bare_filenames() {
+        // Bare filenames (e.g., `Rakefile`) at the scan root should NOT match
+        // via scan_root relativization. RuboCop only matches bare-name Include
+        // patterns when base_dir is the repo root (CWD = project directory for
+        // non-.rubocop configs). The scan_root fallback must not bypass this.
+        //
+        // In normal usage (CWD = project root), bare filenames match through
+        // rel_path or rel_to_base instead.
+        let dir = std::env::temp_dir().join("nitrocop_test_scan_root_bare");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Create a config with Include: ['Rakefile', '**/*.rake'] — mirrors
+        // rubocop-rake's department-level Include pattern.
+        let path = write_config(
+            &dir,
+            "Style/FrozenStringLiteralComment:\n  Include:\n    - 'Rakefile'\n    - '**/*.rake'\n",
+        );
+        let config = load_config(Some(&path), None, None).unwrap();
+        let registry = crate::cop::registry::CopRegistry::default_registry();
+        let tier_map = crate::cop::tiers::TierMap::load();
+
+        let scan_root = PathBuf::from("/fake/repo");
+        let filters = config.build_cop_filters(&registry, &tier_map, true, &[scan_root]);
+        let idx = registry
+            .cops()
+            .iter()
+            .position(|c| c.name() == "Style/FrozenStringLiteralComment")
+            .unwrap();
+
+        // Bare "Rakefile" at repo root should NOT match via scan_root —
+        // the scan_root fallback only applies to paths with directory components.
+        assert!(
+            !filters.is_cop_match(idx, Path::new("/fake/repo/Rakefile")),
+            "Bare Rakefile should NOT match via scan_root relativization"
+        );
+
+        // Nested .rake files should still match via scan_root (has directory component)
+        assert!(
+            filters.is_cop_match(idx, Path::new("/fake/repo/lib/tasks/foo.rake")),
+            "lib/tasks/foo.rake should match **/*.rake via scan_root"
+        );
+
+        // A Rakefile in a subdirectory would produce "subdir/Rakefile" which
+        // has a directory component — but the Include pattern is bare "Rakefile",
+        // not "subdir/Rakefile", so it still shouldn't match.
+        assert!(
+            !filters.is_cop_match(idx, Path::new("/fake/repo/subdir/Rakefile")),
+            "subdir/Rakefile should NOT match bare Rakefile Include pattern"
         );
 
         fs::remove_dir_all(&dir).ok();
