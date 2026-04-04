@@ -82,3 +82,16 @@ end
 
 @@logging_device_file_options = {size: 1_000_000, age: 'daily', roll_by: 'number'} unless defined? @@logging_device_file_options
 ^ Style/IfUnlessModifier: Modifier form of `unless` makes the line too long.
+
+if(/foo/ =~ bar)
+^^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body.
+  baz
+end
+
+if /#{foo}/ =~ bar
+^^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body.
+  baz
+end
+
+documentation_stream.puts "Processes a very descriptive generated event entry for {#{fullname}::#{evt_type}} in the API reference." unless /Process.*\s(event|command)/ =~ evh_docstr
+^ Style/IfUnlessModifier: Modifier form of `unless` makes the line too long.
