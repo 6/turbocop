@@ -25,3 +25,33 @@ class ChangeColumnMigration < ActiveRecord::Migration[7.0]
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ReversibleMigration: change_column is not reversible.
   end
 end
+
+class AddTokensToCourseLessonPlanItems < ActiveRecord::Migration[4.2]
+  def change
+    assessment.lesson_plan_item.update_column(:start_at, assessment.start_at.change(usec: 0))
+                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ReversibleMigration: change(without :from and :to) is not reversible.
+
+    assessment.lesson_plan_item.update_column(:end_at, assessment.end_at.change(usec: 0))
+                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ReversibleMigration: change(without :from and :to) is not reversible.
+  end
+end
+
+class Fix21 < ActiveRecord::Migration[6.0]
+  def change
+    change_table :swars_memberships do |t|
+      if t.column_exists?(:obt_think_avg)
+        t.remove :obt_think_avg
+        ^^^^^^^^^^^^^^^^^^^^^^^ Rails/ReversibleMigration: t.remove (without type) is not reversible.
+      end
+    end
+  end
+end
+
+class FixAuthInfos2 < ActiveRecord::Migration[6.0]
+  def change
+    change_table :auth_infos do |t|
+      t.remove :meta_info rescue nil
+      ^^^^^^^^^^^^^^^^^^^ Rails/ReversibleMigration: t.remove (without type) is not reversible.
+    end
+  end
+end
