@@ -4,6 +4,7 @@ use crate::cop::shared::node_type::{
     IF_NODE, IN_NODE, MODULE_NODE, PROGRAM_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE,
     UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
 };
+use crate::cop::shared::util::begins_its_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -83,26 +84,6 @@ impl IndentationConsistency {
         let loc = node.location();
         let end_offset = loc.end_offset().saturating_sub(1);
         source.offset_to_line_col(end_offset).0
-    }
-
-    /// Check if a node's start position is the first non-whitespace on its line.
-    /// Mirrors RuboCop's `begins_its_line?` — expressions after a leading `;`
-    /// (e.g. `; _erbout.<<(...)`) do not begin their line and are skipped.
-    fn begins_its_line(&self, source: &SourceFile, byte_offset: usize) -> bool {
-        let (line, _) = source.offset_to_line_col(byte_offset);
-        let line_start = source.line_start_offset(line);
-        let bytes = source.as_bytes();
-        for i in line_start..byte_offset {
-            let b = bytes[i];
-            if b != b' ' && b != b'\t' {
-                // Allow BOM bytes on line 1
-                if line == 1 && i < 3 && bytes.starts_with(&UTF8_BOM) {
-                    continue;
-                }
-                return false;
-            }
-        }
-        true
     }
 
     fn statements_from_body<'pr>(
@@ -254,7 +235,7 @@ impl IndentationConsistency {
 
         if first_line != kw_line
             && first_col != expected_column
-            && self.begins_its_line(source, first_loc.start_offset())
+            && begins_its_line(source, first_loc.start_offset())
         {
             diagnostics.push(self.diagnostic(
                 source,
@@ -275,7 +256,7 @@ impl IndentationConsistency {
             }
             prev_end_line = self.end_line_for(source, child);
 
-            if child_col != expected_column && self.begins_its_line(source, loc.start_offset()) {
+            if child_col != expected_column && begins_its_line(source, loc.start_offset()) {
                 diagnostics.push(self.diagnostic(
                     source,
                     child_line,
@@ -331,7 +312,7 @@ impl IndentationConsistency {
                 }
                 prev_end_line = self.end_line_for(source, child);
 
-                if child_col != first_col && self.begins_its_line(source, loc.start_offset()) {
+                if child_col != first_col && begins_its_line(source, loc.start_offset()) {
                     diagnostics.push(self.diagnostic(
                         source,
                         child_line,
