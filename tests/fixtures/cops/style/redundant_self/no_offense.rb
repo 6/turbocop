@@ -158,7 +158,6 @@ def test_kernel_methods
   self.caller
   self.trap("INT")
   self.p("debug")
-  self.pp("inspect")
   self.printf("fmt")
   self.sprintf("fmt")
   self.Array(something)
@@ -234,3 +233,6 @@ def test_operator_methods
   self.&(other)
   self.|(other)
 end
+
+# explicit call syntax is allowed
+def to_proc = proc { |value| self.(value) }

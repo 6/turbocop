@@ -189,6 +189,8 @@ def build_department_stats(data: dict, synthetic: dict[str, dict] | None = None)
             "matches": entry.get("matches", derived_entry.get("matches", 0)),
             "fp": entry.get("fp", derived_entry.get("fp", 0)),
             "fn": entry.get("fn", derived_entry.get("fn", 0)),
+            "variant_perfect_cops": entry.get("variant_perfect_cops"),
+            "variant_diverging_cops": entry.get("variant_diverging_cops"),
         }
 
     for dept, entry in derived.items():
@@ -209,6 +211,7 @@ def build_department_stats(data: dict, synthetic: dict[str, dict] | None = None)
             })
 
     return stats_by_department
+
 
 
 def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> str:
@@ -240,14 +243,24 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         corpus_line += "."
         lines.append(corpus_line)
         lines.append("")
+    variant_rate = summary.get("variant_overall_match_rate")
     if total_compared > 0:
+        default_pct = format_offense_match_pct(total_matches, total_fp, total_fn)
         summary_line = (
-            f"{format_offense_match_pct(total_matches, total_fp, total_fn)} of compared issue reports matched "
-            f"({format_count_summary(total_matches)} of {format_count_summary(total_compared)}). "
-            f"{perfect_cops:,} of {total_cops:,} cops matched exactly"
+            f"{default_pct} offense match rate "
+            f"({format_count_summary(total_matches)} of {format_count_summary(total_compared)} offenses)"
+        )
+        if variant_rate is not None:
+            summary_line += f", {format_match_rate(variant_rate)} across all style variants"
+        summary_line += "."
+        lines.append(summary_line)
+        lines.append("")
+        # Cop-level stats on a separate line for clarity
+        summary_line = (
+            f"{perfect_cops:,} of {total_cops:,} cops matched exactly (default config)"
         )
     else:
-        summary_line = f"{perfect_cops:,} of {total_cops:,} cops matched exactly"
+        summary_line = f"{perfect_cops:,} of {total_cops:,} cops matched exactly (default config)"
     if diverging_cops > 0:
         summary_line += f"; {diverging_cops:,} differed"
     if no_data_cops > 0:
@@ -262,39 +275,53 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         perfect = sum(r["perfect_cops"] for r in rows)
         diverging = sum(r["diverging_cops"] for r in rows)
         no_data = sum(r["no_data_cops"] for r in rows)
+        has_variant = any(r.get("variant_perfect_cops") is not None for r in rows)
         version = baseline.get(gem["key"], "?")
         lines.append(f"**[{gem['key']}]({gem['url']})** `{version}` ({total:,} cops)")
         lines.append("")
+
+        # Build table header based on available columns
+        hdr = "| Department | Cops | Matched exactly | Differed |"
+        sep = "|------------|-----:|----------------:|---------:|"
         if no_data > 0:
-            lines.append("| Department | Cops | Matched exactly | Differed | No corpus data | Matched exactly % |")
-            lines.append("|------------|-----:|----------------:|---------:|---------------:|------------------:|")
-            for row in rows:
-                lines.append(
-                    f"| {row['department']} | {row['cops']:,} | "
-                    f"{row['perfect_cops']:,} | {row['diverging_cops']:,} | {row['no_data_cops']:,} | "
-                    f"{format_exact_match_pct(row['perfect_cops'], row['cops'])} |"
-                )
-            if len(rows) > 1:
-                lines.append(
-                    f"| **Total** | **{total:,}** | **{perfect:,}** | "
-                    f"**{diverging:,}** | **{no_data:,}** | "
-                    f"**{format_exact_match_pct(perfect, total)}** |"
-                )
-        else:
-            lines.append("| Department | Cops | Matched exactly | Differed | Matched exactly % |")
-            lines.append("|------------|-----:|----------------:|---------:|------------------:|")
-            for row in rows:
-                lines.append(
-                    f"| {row['department']} | {row['cops']:,} | "
-                    f"{row['perfect_cops']:,} | {row['diverging_cops']:,} | "
-                    f"{format_exact_match_pct(row['perfect_cops'], row['cops'])} |"
-                )
-            if len(rows) > 1:
-                lines.append(
-                    f"| **Total** | **{total:,}** | **{perfect:,}** | "
-                    f"**{diverging:,}** | "
-                    f"**{format_exact_match_pct(perfect, total)}** |"
-                )
+            hdr += " No corpus data |"
+            sep += "---------------:|"
+        hdr += " Matched exactly % |"
+        sep += "------------------:|"
+        if has_variant:
+            hdr += " All variants % |"
+            sep += "---------------:|"
+        lines.append(hdr)
+        lines.append(sep)
+
+        for row in rows:
+            cells = (
+                f"| {row['department']} | {row['cops']:,} | "
+                f"{row['perfect_cops']:,} | {row['diverging_cops']:,} |"
+            )
+            if no_data > 0:
+                cells += f" {row['no_data_cops']:,} |"
+            cells += f" {format_exact_match_pct(row['perfect_cops'], row['cops'])} |"
+            if has_variant:
+                vpc = row.get("variant_perfect_cops")
+                if vpc is not None:
+                    cells += f" {format_exact_match_pct(vpc, row['cops'])} |"
+                else:
+                    cells += " N/A |"
+            lines.append(cells)
+
+        if len(rows) > 1:
+            cells = (
+                f"| **Total** | **{total:,}** | **{perfect:,}** | "
+                f"**{diverging:,}** |"
+            )
+            if no_data > 0:
+                cells += f" **{no_data:,}** |"
+            cells += f" **{format_exact_match_pct(perfect, total)}** |"
+            if has_variant:
+                gem_variant_perfect = sum(r.get("variant_perfect_cops", 0) for r in rows)
+                cells += f" **{format_exact_match_pct(gem_variant_perfect, total)}** |"
+            lines.append(cells)
         lines.append("")
 
     lines.append(

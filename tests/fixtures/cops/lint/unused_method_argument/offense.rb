@@ -61,3 +61,23 @@ def with_binding_block_pass(bar, &blk)
                             ^^^ Lint/UnusedMethodArgument: Unused method argument - `bar`.
   binding(&blk)
 end
+
+# singleton method (def self.) with unused rest param
+def self.class_method(used, *rest)
+                             ^^^^ Lint/UnusedMethodArgument: Unused method argument - `rest`.
+  puts used
+end
+
+# parameter only reassigned (not read) inside block — not truly used
+def reassign_in_block(first, last)
+                             ^^^^ Lint/UnusedMethodArgument: Unused method argument - `last`.
+  items.each { |item| call(first, last = nil) }
+end
+
+# optional param only reassigned inside block body
+def reassign_optional(symtab, indent = 0)
+                              ^^^^^^ Lint/UnusedMethodArgument: Unused method argument - `indent`.
+  children.each do |child|
+    child.process(symtab, indent = 2)
+  end
+end

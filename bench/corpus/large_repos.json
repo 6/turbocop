@@ -1,0 +1,17 @@
+{
+  "_comment": "Repos that get their own dedicated matrix job in the corpus oracle. These repos have 3000+ Ruby files and take 25+ minutes in a shared batch, blocking smaller repos. Sorted by files_inspected from corpus results. Update by running: python3 -c \"import json; data=json.loads(open('corpus-results.json').read()); ranked=[r for r in data['by_repo'] if r.get('files_inspected',0)>=3000 and r.get('status')=='ok']; print(json.dumps([r['repo'] for r in sorted(ranked, key=lambda r: -r['files_inspected'])], indent=2))\"",
+  "repo_ids": [
+    "jruby__jruby__0303464",
+    "opf__openproject__f5a451d",
+    "department-of-veterans-affairs__vets-api__038d1df",
+    "vmware__dod-compliance-and-automation__01c9d22",
+    "decidim__decidim__bc448c8",
+    "discourse__discourse__9c8f125",
+    "zammad__zammad__81bf998",
+    "getlago__lago-api__b509333",
+    "antiwork__gumroad__782a69f",
+    "sshaw__ddex__0f37736",
+    "natalie-lang__natalie__b507cff",
+    "puppetlabs__puppet__e227c27"
+  ]
+}

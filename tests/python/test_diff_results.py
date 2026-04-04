@@ -286,6 +286,65 @@ def test_example_order_is_stable():
         ]
 
 
+def test_variant_stats_not_in_json_before_patch():
+    """diff_results.py does NOT embed variant stats in JSON — patch_variant_stats.py does that.
+
+    This ensures the JSON from diff_results.py doesn't contain stale variant
+    stats that would be overwritten by the patch step anyway.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        nc_dir = tmp / "nitrocop"
+        rc_dir = tmp / "rubocop"
+        nc_dir.mkdir()
+        rc_dir.mkdir()
+
+        nc_dir.joinpath("repo_a.json").write_text(json.dumps({
+            "offenses": [
+                {"path": "repos/repo_a/app.rb", "line": 1, "cop_name": "Style/Foo"},
+            ]
+        }))
+        rc_dir.joinpath("repo_a.json").write_text(json.dumps({
+            "files": [{"path": "repos/repo_a/app.rb", "offenses": [
+                {"location": {"line": 1}, "cop_name": "Style/Foo"},
+            ]}],
+            "summary": {"target_file_count": 1, "inspected_file_count": 1}
+        }))
+
+        manifest = tmp / "manifest.jsonl"
+        manifest.write_text(json.dumps({"id": "repo_a"}) + "\n")
+
+        variant_results = tmp / "variant.json"
+        variant_results.write_text(json.dumps({
+            "batches": [{
+                "name": "variant_batch_1",
+                "by_cop": [
+                    {"cop": "Style/Foo", "style_label": "bar", "matches": 80, "fp": 5, "fn": 3},
+                ],
+            }]
+        }))
+
+        out_json = tmp / "out.json"
+        out_md = tmp / "out.md"
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT),
+             "--nitrocop-dir", str(nc_dir), "--rubocop-dir", str(rc_dir),
+             "--manifest", str(manifest),
+             "--output-json", str(out_json), "--output-md", str(out_md),
+             "--style-variant-results", str(variant_results)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"Failed:\n{result.stderr}"
+
+        data = json.loads(out_json.read_text())
+        # Variant stats should NOT be in JSON — they're patched in later
+        assert "variant_overall_match_rate" not in data["summary"]
+        # But the markdown should still have variant rows
+        md = out_md.read_text()
+        assert "Match rate (all variants)" in md
+
+
 def test_style_variant_rows_in_markdown():
     """When --style-variant-results is provided, per-variant rows appear in the markdown."""
     with tempfile.TemporaryDirectory() as tmp:

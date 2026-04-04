@@ -974,3 +974,60 @@ partially_sorted = (1..5).map{|i|
   ary.sort_by!{|x,y| break if x==i; x<=>y}
   ary
 }
+
+# FP fix: consecutive block-form guards where raise uses %{} with apostrophe
+# count_bracket_depth_change must handle percent literals
+def consecutive_block_guards_with_percent_string
+  if cond1
+    raise "simple error"
+  end
+  if cond2
+    raise %{you'l need to pass a identifier}
+  end
+end
+
+# FP fix: ternary guard with heredoc argument as last statement
+def ternary_guard_with_heredoc_last_stmt
+  searchables = filters.select(&:searchable?)
+  searchables.blank? ? raise(<<-NO_SEARCHABLE_FILTERS) : searchables
+    No searchable filters for unroll.
+  NO_SEARCHABLE_FILTERS
+end
+
+# FP fix: consecutive modifier guards where next guard has regex with escaped quotes
+def consecutive_guards_with_regex_escaped_quotes
+  return 1 if key == 'a'
+  return key.gsub!(/\A\'|\'\Z/, '') if key.start_with?("'") && key.end_with?("'")
+
+  key.process
+end
+
+# FP fix: consecutive block-form guards where next if condition has inline comment
+# containing parentheses and slashes
+def consecutive_block_guards_inline_comment_parens
+  if track_thing.created_at >= result[:model].described_at
+    next
+  end
+  if result[:model].described_at < one_week_ago  # older than 1 week (see 14 days / 7 days in comment above)
+    next
+  end
+  if done_info_request_events.include?(result[:model].id)
+    next
+  end
+
+  work
+end
+
+# FP fix: guard with backslash continuation where trailing \ should not be
+# treated as code after the guard
+def guard_with_trailing_backslash_continuation
+  contents.each do |t|
+    next if t == image \
+            || t.vendor != image.vendor \
+            || t.variant != image.variant \
+            || t.arch != image.arch \
+            || t.distribution != image.distribution \
+
+    t.tags.delete_if { |tag| image.tags.include?(tag) }
+  end
+end

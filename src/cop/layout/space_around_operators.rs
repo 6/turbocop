@@ -369,7 +369,8 @@ impl Cop for SpaceAroundOperators {
                                 two,
                                 multi_before,
                                 multi_after,
-                                true,
+                                false,
+                                code_map,
                                 diagnostics,
                                 &mut corrections,
                             );
@@ -480,6 +481,7 @@ impl Cop for SpaceAroundOperators {
                             multi_before,
                             multi_after,
                             plain_assignment_offsets.contains(&i),
+                            code_map,
                             diagnostics,
                             &mut corrections,
                         );
@@ -505,7 +507,8 @@ fn check_text_scanner_extra_space(
     op_bytes: &[u8],
     multi_before: bool,
     multi_after: bool,
-    allow_trailing_rhs_alignment: bool,
+    is_plain_assignment: bool,
+    code_map: &CodeMap,
     diagnostics: &mut Vec<Diagnostic>,
     corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
 ) {
@@ -533,8 +536,8 @@ fn check_text_scanner_extra_space(
     // NOT aligned. If there's no subsequent assignment, it's standalone or end-of-group
     // and should not be flagged.
     if multi_before
-        && allow_trailing_rhs_alignment
-        && !has_subsequent_assignment_neighbor(source, op_start)
+        && is_plain_assignment
+        && !has_subsequent_assignment_neighbor(source, op_start, code_map)
     {
         multi_before = false;
     }
@@ -546,7 +549,7 @@ fn check_text_scanner_extra_space(
         }
         if p < bytes.len() && bytes[p] == b'#' {
             multi_after = false;
-        } else if allow_trailing_rhs_alignment {
+        } else if is_plain_assignment || op_bytes != b"=" {
             if let Some(rhs_start) = util::first_non_space_on_line(bytes, op_end) {
                 if is_aligned_rhs_standalone(source, rhs_start) {
                     multi_after = false;
@@ -790,6 +793,10 @@ fn line_has_operator_ending_at_col(line: &[u8], target_end_col: usize) -> bool {
     }
     let col = target_end_col;
     if end_byte == b'=' && col >= 1 {
+        // Skip if this `=` is actually the start of a multi-char operator (=>, ==, =~)
+        if col < line.len() && matches!(line[col], b'>' | b'=' | b'~') {
+            return false;
+        }
         let before = if col >= 2 { line[col - 2] } else { b' ' };
         // Simple `=` preceded by whitespace
         if before == b' ' || before == b'\t' {
@@ -830,9 +837,13 @@ fn line_has_operator_ending_at_col(line: &[u8], target_end_col: usize) -> bool {
 /// indentation level. This mirrors RuboCop's `aligned_with_subsequent_equals_operator`
 /// which returns `:none` (suppressing the offense) when no subsequent assignment exists.
 ///
-/// An "assignment-like line" is one that contains an `=` sign preceded by a
-/// word character (to avoid matching `=` inside strings), at the same indentation.
-fn has_subsequent_assignment_neighbor(source: &SourceFile, op_start: usize) -> bool {
+/// Uses code_map to avoid matching `=` inside strings or comments.
+fn has_subsequent_assignment_neighbor(
+    source: &SourceFile,
+    op_start: usize,
+    code_map: &CodeMap,
+) -> bool {
+    let bytes = source.as_bytes();
     let lines: Vec<&[u8]> = source.lines().collect();
     let (line, _) = source.offset_to_line_col(op_start);
     let line_idx = line - 1;
@@ -841,6 +852,9 @@ fn has_subsequent_assignment_neighbor(source: &SourceFile, op_start: usize) -> b
         .iter()
         .position(|&b| b != b' ' && b != b'\t')
         .unwrap_or(0);
+
+    // Compute line start offsets for absolute position mapping
+    let line_starts = compute_line_starts(bytes);
 
     // Scan downward from the line after current
     let mut check_idx = line_idx + 1;
@@ -867,8 +881,9 @@ fn has_subsequent_assignment_neighbor(source: &SourceFile, op_start: usize) -> b
                     break;
                 }
                 if indent == my_indent {
-                    // Same indent — check if this line has an assignment operator
-                    return line_has_equals_sign(line_bytes);
+                    // Same indent — check if this line has an assignment operator in code
+                    let abs_start = line_starts[check_idx];
+                    return line_has_equals_sign_in_code(line_bytes, abs_start, code_map);
                 }
                 // Different indent (more indented) — skip (e.g., continuation)
                 check_idx += 1;
@@ -879,12 +894,27 @@ fn has_subsequent_assignment_neighbor(source: &SourceFile, op_start: usize) -> b
     false
 }
 
+/// Compute the byte offset of each line's start within the source.
+fn compute_line_starts(bytes: &[u8]) -> Vec<usize> {
+    let mut starts = vec![0usize];
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\n' {
+            starts.push(i + 1);
+        }
+    }
+    starts
+}
+
 /// Check if a line contains an `=` sign that looks like an assignment or
-/// comparison operator (not inside a string literal). Checks for `=` preceded
-/// by a word character, space, or operator character.
-fn line_has_equals_sign(line: &[u8]) -> bool {
+/// comparison operator, using the code_map to ensure the `=` is in code
+/// (not inside a string, comment, or regexp).
+fn line_has_equals_sign_in_code(line: &[u8], line_abs_start: usize, code_map: &CodeMap) -> bool {
     for i in 0..line.len() {
         if line[i] == b'=' {
+            let abs_offset = line_abs_start + i;
+            if !code_map.is_code(abs_offset) {
+                continue;
+            }
             // Skip `=` that is part of `=>` (hash rocket) — we only care about
             // assignment-like `=`
             if i + 1 < line.len() && line[i + 1] == b'>' {

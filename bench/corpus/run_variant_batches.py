@@ -105,6 +105,12 @@ def run_variant_batches(
     if not batches:
         return []
 
+    # Build cop list per batch so we can pass --only to both tools.
+    # This is critical for performance: without --only, variant runs
+    # check all 915 cops even though only 160/53/14 are overridden.
+    # With --only, batch 1 is ~75% faster, batch 2 ~94%, batch 3 ~98%.
+    style_map = parse_batch_style_map(batches_dir)
+
     abs_dest = str(Path(repo_dir).absolute())
     env = build_env(abs_dest)
     results = []
@@ -122,15 +128,19 @@ def run_variant_batches(
         rc_json = rc_dir / f"{repo_id}.json"
         rc_err = rc_dir / f"{repo_id}.err"
 
+        # Build --only flag from cops overridden in this batch
+        batch_cops = sorted(style_map.get(batch_name, {}).keys())
+        only_flag = ["--only", ",".join(batch_cops)] if batch_cops else []
+
         # nitrocop (always run — it's fast)
         nc_ok = _run_tool(
             cmd=[
                 binary, "--preview", "--format", "json", "--no-cache",
-                "--config", str(batch_config), abs_dest,
+                "--config", str(batch_config), *only_flag, abs_dest,
             ],
             env=env, timeout=timeout,
             stdout_path=nc_json, stderr_path=nc_err,
-            label=f"variant-nitrocop ({batch_name}): {repo_id}",
+            label=f"variant-nitrocop ({batch_name}, {len(batch_cops)} cops): {repo_id}",
         )
 
         # rubocop — use cached result if available
@@ -155,12 +165,13 @@ def run_variant_batches(
                     "bundle", "exec", "rubocop",
                     "--require", str(rescue_file),
                     "--config", str(batch_config),
+                    *only_flag,
                     "--format", "json", "--force-exclusion", "--cache", "false",
                     abs_dest,
                 ],
                 env=env, timeout=timeout,
                 stdout_path=rc_json, stderr_path=rc_err,
-                label=f"variant-rubocop ({batch_name}): {repo_id}",
+                label=f"variant-rubocop ({batch_name}, {len(batch_cops)} cops): {repo_id}",
             )
             # Save to cache
             if rc_ok and cache_path and rc_cache_key and rc_json.exists():

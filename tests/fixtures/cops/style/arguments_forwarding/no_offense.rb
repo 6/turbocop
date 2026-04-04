@@ -82,3 +82,12 @@ def initialize(*, permission: nil, permissions: nil, **, &)
 
   super(*, **, &)
 end
+
+# Forwarding used as the receiver of another call is not rewritten
+def self.produce(*, **, &)
+  new(*, **, &).produce
+end
+
+def self.call!(*, **, &)
+  call(*, **, &).raise_if_error!
+end

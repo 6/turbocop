@@ -65,3 +65,12 @@ message[:cc] = 'mikel@cc.lindsaar.net'
 t.pattern = 'spec/**/*_spec.rb'
 t.libs << 'spec'
 t.warning = false
+
+# Extra space before => inside hash (not aligned)
+{ 'environ' => 1 }
+
+# Extra space before => with symbol key
+{ :reset => "\e[0m" }
+
+# Setter call with extra trailing space (not aligned with neighbor)
+adapter.properties = @props

@@ -101,3 +101,19 @@ if content_type =~ /json/i && (response_body.is_a?(Hash) || response_body.is_a?(
 else
   response_body = response_body.to_s
 end
+
+# if/else with shovel operator assignment
+if @params.empty?
+^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  message << " without parameters."
+else
+  message << " with parameters #{@params.inspect}."
+end
+
+# if/else with shovel operator assignment in a block
+if i == 0
+^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  this_sig_lines << options.indented(indent_level, definition)
+else
+  this_sig_lines << options.indented(indent_level, "#{' ' * (definition.length - 2)}| ")
+end

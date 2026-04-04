@@ -250,3 +250,26 @@ end
 # Body not at first char on line — skip (RuboCop skip_check?)
 if cond then result = value
 end
+
+# Access modifier with symbol arg — RuboCop skips ALL access modifiers
+# in class member walk, even at wrong indentation (handled by
+# Layout/AccessModifierIndentation instead)
+class AccessModWithArgs
+    private :some_method
+    public :other_method
+    protected :another_method
+end
+
+# def body with rescue — correctly indented
+def method_with_rescue
+  do_something
+rescue StandardError
+  handle_error
+end
+
+# def body with ensure — correctly indented
+def method_with_ensure
+  do_something
+ensure
+  cleanup
+end

@@ -22,6 +22,10 @@ x = (foo.bar)
 x = (foo.bar(1))
     ^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method call.
 
+if (arr[0])
+   ^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method call.
+end
+
 (x == y)
 ^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a comparison expression.
 
@@ -133,14 +137,27 @@ foo.include?((port = get_port))
 ({filename: file, content: File.read(file)}.merge(opts)).to_json
 ^ Style/RedundantParentheses: Don't use parentheses around a method call.
 
-new_file = [(Pod::Sandbox::PathList.new(@banana_spec.defined_in_file.dirname).root + 'CoolFile.h')]
-
 return ((isprint(c)) ? 1 : 2)
         ^ Style/RedundantParentheses: Don't use parentheses around a method call.
-
-c = (((c & 0x03ff)) << 10 | (low & 0x03ff)) + 0x10000
 
 exit_code = (@codaveri_evaluation_results.map(&:success).all? { |n| n == 1 }) ? 0 : 2
             ^ Style/RedundantParentheses: Don't use parentheses around a method call.
 
+new_file = [(Pod::Sandbox::PathList.new(@banana_spec.defined_in_file.dirname).root + 'CoolFile.h')]
+            ^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+c = (((c & 0x03ff)) << 10 | (low & 0x03ff)) + 0x10000
+      ^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
 ((1 << 128)).to_s(16), # 0
+ ^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+((1 << 64)).to_s(16),
+ ^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+match(event,
+  (on Finished do
+  ^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method argument.
+     on_finish
+   end),
+)

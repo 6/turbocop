@@ -7,12 +7,20 @@ use ruby_prism::Visit;
 /// Matches RuboCop's guarded receiver handling for modifier `if`/`unless`, adjacent
 /// clauses inside chained `&&` guards like `proof && dom_body && dom_body.include?(proof)`,
 /// and ternaries such as `uri.port = port ? port.to_i : nil`.
-/// The current fix also matches RuboCop's `&&` receiver lookup more closely by:
-/// recognizing checked receivers that already use safe navigation (`foo&.bar && foo.bar.baz`)
-/// and by searching parenthesized `||` / nested `&&` RHS trees for the first safe
-/// receiver invocation (`handler && (!handler.is_a?(Proc) || (handler.lambda? && ...))`).
+/// The current fixes also match RuboCop more closely by:
+/// recognizing checked receivers that already use safe navigation (`foo&.bar && foo.bar.baz`);
+/// searching parenthesized `||` / nested `&&` RHS trees for the first safe receiver
+/// invocation (`handler && (!handler.is_a?(Proc) || (handler.lambda? && ...))`);
+/// limiting direct-argument suppression to the expression itself so nested block
+/// bodies, hash values, and `if`/`unless` expressions inside arguments still report;
+/// and preserving outer ruby2js-style `async` send ancestors for ordinary block bodies
+/// while still resetting nested block literals reached through call arguments.
+/// `send`/`public_send` arguments remain skipped for plain-variable guards, but call
+/// receivers like `hash["kind"] && hash["kind"].downcase.to_sym` now match RuboCop.
 /// Direct receiver cases like `(foo && foo.bar).to_s` remain skipped, as do unsafe
-/// argument, dynamic-send, double-colon-argument, and negated-wrapper contexts.
+/// plain-variable dynamic-send arguments, double-colon direct arguments, negated
+/// wrapper contexts, and `async { ... }[]` / `async def ... end` wrappers where RuboCop
+/// keeps the outer unsafe send ancestry.
 pub struct SafeNavigation;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -568,6 +576,7 @@ impl Cop for SafeNavigation {
             in_dynamic_send_args: 0,
             in_double_colon_call_arguments: 0,
             in_and_clause_visit: 0,
+            in_definition_argument_wrapper: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -595,9 +604,39 @@ struct SafeNavVisitor<'a> {
     in_dynamic_send_args: usize,
     in_double_colon_call_arguments: usize,
     in_and_clause_visit: usize,
+    in_definition_argument_wrapper: usize,
 }
 
 impl<'a> SafeNavVisitor<'a> {
+    fn with_reset_parent_operator_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let saved_in_unsafe_parent = self.in_unsafe_parent;
+        let saved_in_ternary_operator_parent = self.in_ternary_operator_parent;
+        let saved_in_assignment_or_operator_parent = self.in_assignment_or_operator_parent;
+        let saved_dotted_assignment_parent_starts =
+            std::mem::take(&mut self.dotted_assignment_parent_starts);
+
+        self.in_unsafe_parent = 0;
+        self.in_ternary_operator_parent = 0;
+        self.in_assignment_or_operator_parent = 0;
+
+        let result = f(self);
+
+        self.in_assignment_or_operator_parent = saved_in_assignment_or_operator_parent;
+        self.in_ternary_operator_parent = saved_in_ternary_operator_parent;
+        self.in_unsafe_parent = saved_in_unsafe_parent;
+        self.dotted_assignment_parent_starts = saved_dotted_assignment_parent_starts;
+
+        result
+    }
+
+    fn with_reset_outer_expression_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let saved_in_call_arguments = self.in_call_arguments;
+        self.in_call_arguments = 0;
+        let result = self.with_reset_parent_operator_context(f);
+        self.in_call_arguments = saved_in_call_arguments;
+        result
+    }
+
     fn visit_flattened_and_clauses<'pr>(&mut self, node: &ruby_prism::AndNode<'pr>) {
         let bytes = self.source.as_bytes();
         for clause in SafeNavigation::top_level_and_clauses(node, bytes) {
@@ -635,6 +674,11 @@ impl<'a> SafeNavVisitor<'a> {
         if self.is_direct_receiver_block_body(&node.as_node())
             && chain.iter().any(|call| call.block().is_some())
         {
+            ruby_prism::visit_and_node(self, node);
+            return;
+        }
+
+        if self.in_dynamic_send_args > 0 && chain.len() == 1 {
             ruby_prism::visit_and_node(self, node);
             return;
         }
@@ -844,8 +888,61 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         self.in_block += 1;
-        ruby_prism::visit_block_node(self, node);
+        if self.in_call_arguments > 0 && self.in_definition_argument_wrapper == 0 {
+            self.with_reset_outer_expression_context(|this| {
+                ruby_prism::visit_block_node(this, node);
+            });
+        } else {
+            ruby_prism::visit_block_node(self, node);
+        }
         self.in_block -= 1;
+    }
+
+    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
+        self.visit(&node.key());
+        self.with_reset_parent_operator_context(|this| {
+            this.visit(&node.value());
+        });
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper += 1;
+        }
+        ruby_prism::visit_def_node(self, node);
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper -= 1;
+        }
+    }
+
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper += 1;
+        }
+        ruby_prism::visit_class_node(self, node);
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper -= 1;
+        }
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper += 1;
+        }
+        ruby_prism::visit_module_node(self, node);
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper -= 1;
+        }
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper += 1;
+        }
+        ruby_prism::visit_singleton_class_node(self, node);
+        if self.in_call_arguments > 0 {
+            self.in_definition_argument_wrapper -= 1;
+        }
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
@@ -854,9 +951,6 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             self.in_unsafe_parent += 1;
         }
         let is_nil_safe_call_ancestor = Self::is_nil_safe_call_ancestor(node);
-        if is_nil_safe_call_ancestor {
-            self.in_nil_safe_call_ancestor += 1;
-        }
         let is_assignment_or_operator_parent = Self::is_assignment_or_operator_parent_call(node);
         if is_assignment_or_operator_parent {
             self.in_assignment_or_operator_parent += 1;
@@ -872,11 +966,17 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
         if let Some(receiver) = node.receiver() {
             let receiver_block_bodies_len = self.direct_receiver_block_bodies.len();
+            if is_nil_safe_call_ancestor {
+                self.in_nil_safe_call_ancestor += 1;
+            }
             Self::collect_direct_receiver_block_bodies(
                 &receiver,
                 &mut self.direct_receiver_block_bodies,
             );
             self.visit(&receiver);
+            if is_nil_safe_call_ancestor {
+                self.in_nil_safe_call_ancestor -= 1;
+            }
             self.direct_receiver_block_bodies
                 .truncate(receiver_block_bodies_len);
         }
@@ -905,14 +1005,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             if is_unsafe && self.in_and_clause_visit == 0 {
                 self.in_unsafe_parent -= 1;
             }
-            let nil_safe_block_scope = is_nil_safe_call_ancestor;
-            if nil_safe_block_scope {
-                self.in_nil_safe_call_ancestor -= 1;
-            }
             self.visit(&block);
-            if nil_safe_block_scope {
-                self.in_nil_safe_call_ancestor += 1;
-            }
         }
 
         if is_assignment_or_operator_parent {
@@ -923,9 +1016,6 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
         if is_dotted_assignment_parent {
             self.dotted_assignment_parent_starts.pop();
-        }
-        if is_nil_safe_call_ancestor {
-            self.in_nil_safe_call_ancestor -= 1;
         }
         if is_unsafe && node.block().is_none_or(|_| self.in_and_clause_visit > 0) {
             self.in_unsafe_parent -= 1;
@@ -944,8 +1034,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // is not flagged because `scope` is a dotless method call.
         if self.in_nil_safe_call_ancestor > 0
             || self.in_unsafe_parent > 0
-            || self.in_dynamic_send_args > 0
             || self.in_double_colon_call_arguments > 0
+            || (self.in_definition_argument_wrapper > 0 && self.in_call_arguments > 0)
         {
             self.visit_flattened_and_clauses(node);
             return;
@@ -987,6 +1077,10 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
                 continue;
             }
 
+            if self.in_dynamic_send_args > 0 && chain.len() == 1 {
+                continue;
+            }
+
             let loc = lhs.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
             self.diagnostics.push(self.cop.diagnostic(
@@ -1011,6 +1105,9 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             if (self.in_block_argument > 0 && self.in_block == 0)
                 || self.in_nil_safe_call_ancestor > 0
                 || self.in_ternary_operator_parent > 0
+                || (self.in_call_arguments > 0
+                    && ((self.in_unsafe_parent > 0 && self.in_assignment_or_operator_parent == 0)
+                        || self.in_dynamic_send_args > 0))
             {
                 ruby_prism::visit_if_node(self, node);
                 return;
@@ -1041,13 +1138,17 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
         // Skip elsif
         if kw.as_slice() == b"elsif" {
-            ruby_prism::visit_if_node(self, node);
+            self.with_reset_parent_operator_context(|this| {
+                ruby_prism::visit_if_node(this, node);
+            });
             return;
         }
 
         // Must not have else/elsif
         if if_node.subsequent().is_some() {
-            ruby_prism::visit_if_node(self, node);
+            self.with_reset_parent_operator_context(|this| {
+                ruby_prism::visit_if_node(this, node);
+            });
             return;
         }
 
@@ -1085,7 +1186,9 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
         // Must not have else
         if node.else_clause().is_some() {
-            ruby_prism::visit_unless_node(self, node);
+            self.with_reset_parent_operator_context(|this| {
+                ruby_prism::visit_unless_node(this, node);
+            });
             return;
         }
 

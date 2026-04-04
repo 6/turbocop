@@ -15,7 +15,6 @@ on:
       repo_filter:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
-        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -55,57 +54,11 @@ jobs:
       - name: Generate matrix
         id: matrix
         run: |
-          python3 << 'PYEOF'
-          import json, os, sys, hashlib
-
-          # 30 repos/batch → ~187 batches. Rubocop cache is consolidated
-          # (not per-batch), so batch size can be changed freely without
-          # causing cold caches. GHA matrix limit is 256.
-          BATCH_SIZE = 30
-
-          repos = []
-          with open('bench/corpus/manifest.jsonl') as f:
-              for line in f:
-                  line = line.strip()
-                  if line:
-                      repos.append(json.loads(line))
-
-          repo_filter = os.environ.get('REPO_FILTER', 'all')
-          if repo_filter != 'all':
-              repos = [r for r in repos if r['id'] == repo_filter]
-              if not repos:
-                  print(f"ERROR: no repo matching '{repo_filter}' in manifest", file=sys.stderr)
-                  sys.exit(1)
-
-          # Round-robin batching: spread large repos (manifest sorted by stars)
-          # across batches so no single batch gets all the biggest repos
-          num_batches = (len(repos) + BATCH_SIZE - 1) // BATCH_SIZE
-          rr_batches = [[] for _ in range(num_batches)]
-          for i, repo in enumerate(repos):
-              rr_batches[i % num_batches].append(repo)
-
-          batches = []
-          for batch_idx, chunk in enumerate(rr_batches):
-              if not chunk:
-                  continue
-              # Stable cache key: hash of sorted repo IDs so adding repos
-              # doesn't invalidate existing caches
-              batch_repo_ids = '|'.join(sorted(r['id'] for r in chunk))
-              batch_hash = hashlib.md5(batch_repo_ids.encode()).hexdigest()[:12]
-              batches.append({
-                  'batch_id': str(batch_idx),
-                  'batch_hash': batch_hash,
-                  'num_batches': str(num_batches),
-              })
-
-          print(f'{len(repos)} repos in {len(batches)} batches (batch_size={BATCH_SIZE})', file=sys.stderr)
-          if len(batches) > 256:
-              print(f'ERROR: {len(batches)} batches exceeds GitHub Actions matrix limit of 256. Increase BATCH_SIZE.', file=sys.stderr)
-              sys.exit(1)
-          matrix = {'include': batches}
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-              out.write(f'matrix={json.dumps(matrix)}\n')
-          PYEOF
+          MATRIX=$(python3 bench/corpus/compute_batches.py matrix \
+            --manifest bench/corpus/manifest.jsonl \
+            --batch-size 30 \
+            --repo-filter "$REPO_FILTER")
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
         env:
           REPO_FILTER: ${{ github.event.inputs.repo_filter || 'all' }}
 
@@ -203,38 +156,18 @@ jobs:
 
       - name: Compute batch repos
         id: batch-repos
-        env:
-          BATCH_ID: ${{ matrix.batch_id }}
-          NUM_BATCHES: ${{ matrix.num_batches }}
-          REPO_FILTER: ${{ github.event.inputs.repo_filter || 'all' }}
         run: |
-          python3 << 'PYEOF'
-          import json, os
-
-          batch_id = int(os.environ['BATCH_ID'])
-          num_batches = int(os.environ['NUM_BATCHES'])
-
-          repos = []
-          with open('bench/corpus/manifest.jsonl') as f:
-              for line in f:
-                  line = line.strip()
-                  if line:
-                      repos.append(json.loads(line))
-
-          repo_filter = os.environ.get('REPO_FILTER', 'all')
-          if repo_filter != 'all':
-              repos = [r for r in repos if r['id'] == repo_filter]
-
-          # Same round-robin as compute-matrix
-          rr_batches = [[] for _ in range(num_batches)]
-          for i, repo in enumerate(repos):
-              rr_batches[i % num_batches].append(repo)
-
-          chunk = rr_batches[batch_id] if batch_id < len(rr_batches) else []
-          with open('batch_repos.json', 'w') as f:
-              json.dump([{'id': r['id'], 'repo_url': r['repo_url'], 'sha': r['sha']} for r in chunk], f)
-          print(f'Batch {batch_id}: {len(chunk)} repos')
-          PYEOF
+          LARGE_FLAG=""
+          if [ "${{ matrix.is_large }}" = "true" ]; then
+            LARGE_FLAG="--is-large"
+          fi
+          python3 bench/corpus/compute_batches.py repos \
+            --manifest bench/corpus/manifest.jsonl \
+            --batch-id "${{ matrix.batch_id }}" \
+            --num-batches "${{ matrix.num_batches }}" \
+            --repo-filter "${{ github.event.inputs.repo_filter || 'all' }}" \
+            --output batch_repos.json \
+            $LARGE_FLAG
 
       - name: Pre-clone repos (parallel)
         run: |
@@ -248,7 +181,6 @@ jobs:
 
       - name: Run batch
         id: run-batch
-        env:
         run: |
           mkdir -p results/nitrocop results/rubocop results/ig-nitrocop results/ig-rubocop results/ig-context rubocop-cache
 
@@ -433,7 +365,7 @@ jobs:
               --max-variant-repos 1000 \
               --cache-dir "$WORKSPACE/variant-rubocop-cache" \
               --repo-sha "$REPO_SHA" \
-              --timeout 600 || true
+              --timeout 900 || true
 
             # Free disk space between repos
             rm -rf "$DEST"
@@ -529,6 +461,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
+          submodules: true
           persist-credentials: false
 
       - name: Download all results
@@ -597,6 +530,7 @@ jobs:
 
       - name: Save consolidated variant rubocop cache
         uses: actions/cache/save@v5
+        continue-on-error: true  # non-fatal if disk is tight
         with:
           path: variant-rubocop-cache/
           key: variant-rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-${{ github.run_id }}
@@ -687,7 +621,9 @@ jobs:
 
       - name: Diff style-variant results
         run: |
-          # Process variant batches in parallel (each is independent)
+          # Process variant batches in parallel (each is independent).
+          # Write JSON only (no .md) — the final markdown is generated
+          # by gen_corpus_md.py from the merged results.
           COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
           PIDS=()
           for NC_DIR in all-results/results/variant-nitrocop-variant_batch_*; do
@@ -704,11 +640,10 @@ jobs:
               --rubocop-dir "$RC_DIR" \
               --manifest bench/corpus/manifest.jsonl \
               --output-json "style-variant-${BATCH_NAME}.json" \
-              --output-md "style-variant-${BATCH_NAME}.md" \
+              --output-md /dev/null \
               ${COP_LIST:+--cop-list "$COP_LIST"} &
             PIDS+=($!)
           done
-          # Wait for all diffs to complete; don't fail if individual batches error
           for pid in "${PIDS[@]}"; do
             wait "$pid" || true
           done
@@ -726,25 +661,28 @@ jobs:
               print(f'Merged {len(files)} variant batch results')
           "
 
+      - name: Patch variant stats into corpus results
+        run: |
+          # Must run AFTER IG merge so variant department rates are computed
+          # from the final (merged) default FP/FN. Without this ordering,
+          # variant rates can appear higher than default rates.
+          python3 bench/corpus/patch_variant_stats.py \
+            --corpus corpus-results.json \
+            --variants style-variant-results.json
+
       - name: Regenerate report with variant data
         run: |
+          # Lightweight: reads the already-computed corpus-results.json
+          # (with IG merge + variant patches applied) and generates MD.
+          # Avoids re-parsing 11K+ raw result files.
+          VARIANT_ARG=""
           if [ -f style-variant-results.json ]; then
-            # Re-run just the markdown generation with variant data included
-            COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
-            CONTEXT_DIR=""
-            if [ -d "all-results/results/context" ]; then
-              CONTEXT_DIR="--context-dir all-results/results/context"
-            fi
-            python3 bench/corpus/diff_results.py \
-              --nitrocop-dir all-results/results/nitrocop \
-              --rubocop-dir all-results/results/rubocop \
-              --manifest bench/corpus/manifest.jsonl \
-              --output-json corpus-results.json \
-              --output-md corpus-results.md \
-              ${COP_LIST:+--cop-list "$COP_LIST"} \
-              $CONTEXT_DIR \
-              --style-variant-results style-variant-results.json
+            VARIANT_ARG="--style-variant-results style-variant-results.json"
           fi
+          python3 bench/corpus/gen_corpus_md.py \
+            --input corpus-results.json \
+            --output corpus-results.md \
+            $VARIANT_ARG
 
       - name: Generate tiers.json
         run: |

@@ -10,6 +10,23 @@ use crate::parse::source::SourceFile;
 /// `config/database.yml`, or `DATABASE_URL`, splitting combinable methods by
 /// adapter and Rails version, and skipping singleton migration methods like
 /// `def self.up` that RuboCop does not analyze for this cop.
+///
+/// ## Corpus FN gap (2469 FN)
+///
+/// All 2469 FN are caused by Include pattern resolution, not detection logic.
+/// RuboCop's default config sets `Include: ["db/**/*.rb"]` for this cop. This
+/// relative pattern only matches when CWD == repo root. When `check_cop.py`
+/// runs from `/tmp` (its default for non-zero-baseline cops), the pattern
+/// cannot match absolute paths like `/tmp/repos/repo_name/db/migrate/001.rb`.
+///
+/// With `--repo-cwd`, 801/805 offenses match across 5 sampled repos (0 FP).
+/// The detection logic is correct; the fix requires either:
+/// - `check_cop.py --repo-cwd` for this include-gated cop, or
+/// - config-level `Include: ["**/db/**/*.rb"]` override in baseline config, or
+/// - scan-root-based Include fallback in `src/config/mod.rs`
+///
+/// The `default_include` here uses `**/db/**/*.rb` so the cop works correctly
+/// under `--force-default-config` (where RuboCop defaults aren't loaded).
 pub struct BulkChangeTable;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -297,7 +314,7 @@ impl Cop for BulkChangeTable {
     }
 
     fn default_include(&self) -> &'static [&'static str] {
-        &["db/**/*.rb"]
+        &["**/db/**/*.rb"]
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
@@ -548,6 +565,18 @@ mod tests {
         assert!(
             diagnostics.is_empty(),
             "def self.up should stay ignored to match RuboCop"
+        );
+    }
+
+    #[test]
+    fn detects_erb_database_yml() {
+        let source = b"def change\n  add_column :users, :name, :string\n  add_column :users, :age, :integer\nend\n";
+        let erb_yml = "default: &default\n  adapter: postgresql\n  encoding: unicode\n  pool: <%= ENV.fetch(\"RAILS_MAX_THREADS\") { 5 } %>\n\ndevelopment:\n  <<: *default\n  database: <%= ENV.fetch('DB_NAME') { 'dev' } %>\n";
+        let diagnostics = run_in_temp_project(source, rails_config(5.2), Some(erb_yml));
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "ERB database.yml with anchors should still resolve adapter"
         );
     }
 

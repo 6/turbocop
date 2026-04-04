@@ -29,6 +29,14 @@ use crate::parse::source::SourceFile;
 /// Fixed here by suppressing only the pending offenses whose later "overwrite"
 /// comes exclusively from sibling rescue clauses in the same rescue chain, and
 /// whose value is later read before any real overwrite on the same path.
+///
+/// ## FP fix: pattern matching captures (2026-04-04)
+///
+/// RuboCop does not flag variables captured in `case/in` pattern matching
+/// (e.g., `in [_, middle, *rest]`). The variable_force engine creates
+/// assignments for these captures, but they should never be reported as
+/// useless. Fixed by collecting all pattern match target offsets from the
+/// AST and skipping those offsets during offense emission.
 pub struct UselessAssignment;
 
 impl Cop for UselessAssignment {
@@ -60,10 +68,15 @@ impl Cop for UselessAssignment {
 
         let rescue_contexts = collect_multi_rescue_contexts(parse_result);
         let conditional_operator_offsets = collect_conditional_operator_write_offsets(parse_result);
+        let pattern_match_offsets = collect_pattern_match_target_offsets(parse_result);
         let mut candidates = collector.take_candidates();
         candidates.sort_by_key(|candidate| candidate.node_offset);
 
         for candidate in candidates {
+            if pattern_match_offsets.contains(&candidate.node_offset) {
+                continue;
+            }
+
             let emit = if conditional_operator_offsets.contains(&candidate.node_offset) {
                 true
             } else if !candidate.engine_used {
@@ -413,6 +426,45 @@ fn matching_operator_write_offset(
         Some(write.location().start_offset())
     } else {
         None
+    }
+}
+
+fn collect_pattern_match_target_offsets(
+    parse_result: &ruby_prism::ParseResult<'_>,
+) -> HashSet<usize> {
+    let mut collector = PatternMatchTargetCollector::default();
+    collector.visit(&parse_result.node());
+    collector.offsets
+}
+
+#[derive(Default)]
+struct PatternMatchTargetCollector {
+    offsets: HashSet<usize>,
+    in_pattern: bool,
+}
+
+impl<'pr> Visit<'pr> for PatternMatchTargetCollector {
+    fn visit_in_node(&mut self, node: &ruby_prism::InNode<'pr>) {
+        let was_in_pattern = self.in_pattern;
+        self.in_pattern = true;
+        self.visit(&node.pattern());
+        self.in_pattern = false;
+        // Visit the body and guard normally (not in pattern context)
+        if let Some(stmts) = node.statements() {
+            for stmt in stmts.body().iter() {
+                self.visit(&stmt);
+            }
+        }
+        self.in_pattern = was_in_pattern;
+    }
+
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        if self.in_pattern {
+            self.offsets.insert(node.location().start_offset());
+        }
     }
 }
 

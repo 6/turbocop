@@ -28,6 +28,12 @@ use ruby_prism::Visit;
 /// 6. **nonempty_line_count > 3**: Multiline conditions like `if a &&\n  b\n  body\nend`
 ///    have 4+ non-empty lines. RuboCop skips these. Fix: count non-empty lines in
 ///    the entire if/unless node source range.
+/// 7. **Bare regexp literal on the LHS of `=~`**: `if /foo/ =~ bar` is accepted
+///    by RuboCop, but parenthesized conditions like `if(/foo/ =~ bar)`,
+///    interpolated regexps like `if /#{foo}/ =~ bar`, and modifier-form lines
+///    that become too long are still offenses. Fix: skip only bare
+///    non-modifier predicates whose top-level condition is an `=~` call with a
+///    plain regexp literal receiver.
 ///
 /// FN root causes (2026-04-01): The biggest remaining cluster was long
 /// modifier-form statements like `raise '...' if condition`. The old Rust cop
@@ -158,6 +164,28 @@ impl<'pr> Visit<'pr> for NamedCaptureFinder {
     fn visit_match_write_node(&mut self, _node: &ruby_prism::MatchWriteNode<'pr>) {
         self.found = true;
     }
+}
+
+/// Check whether the top-level condition is a bare regexp literal on the left
+/// side of `=~`, e.g. `if /foo/ =~ bar`.
+///
+/// RuboCop still flags parenthesized conditions like `if(/foo/ =~ bar)`,
+/// interpolated regexps like `if /#{foo}/ =~ bar`, and modifier-form lines
+/// that are too long, so this intentionally stays narrow.
+fn condition_is_bare_regexp_lhs_match(node: &ruby_prism::Node<'_>) -> bool {
+    let Some(call) = node.as_call_node() else {
+        return false;
+    };
+
+    if call.name().as_slice() != b"=~" {
+        return false;
+    }
+
+    let Some(receiver) = call.receiver() else {
+        return false;
+    };
+
+    receiver.as_regular_expression_node().is_some()
 }
 
 /// Check if the condition contains pattern matching (`in` operator).
@@ -585,6 +613,13 @@ impl Cop for IfUnlessModifier {
                 column,
                 format!("Modifier form of `{keyword}` makes the line too long."),
             ));
+            return;
+        }
+
+        // RuboCop accepts bare non-modifier predicates like `if /foo/ =~ bar`,
+        // but still flags parenthesized/interpolated variants and modifier-form
+        // lines that become too long.
+        if condition_is_bare_regexp_lhs_match(&predicate) {
             return;
         }
 

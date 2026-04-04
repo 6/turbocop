@@ -83,6 +83,30 @@ use crate::parse::source::SourceFile;
 /// An earlier intermediate state showed +154 worse / -321 better (net -167,
 /// close to positive), suggesting the approach can work with narrower
 /// fallback scoping.
+///
+/// ## Corpus fix (2026-04-04)
+///
+/// Baseline: 32,654 matches, 3,962 FP, 7,992 FN (73.2% match rate).
+///
+/// Two targeted changes:
+///
+/// 1. **Aligned style fallback to indented behavior** — When `expected_aligned`
+///    returns `None` (no semantic or syntactic alignment base), we now fall
+///    back to the indented calculation (`base_indent + width`) instead of
+///    skipping the check entirely. This matches RuboCop's behavior in
+///    `check_regular_indentation` where `@base` is nil.
+///
+/// 2. **Multi-line assignment detection** — Extended `find_syntactic_alignment`
+///    to detect assignment context when `=` is on the previous line (e.g.,
+///    `a =\n  b\n  .c`). The existing `assignment_context_base_col` only
+///    checked the same line.
+///
+/// Also fixed `expected_aligned_hash_pair` to return `Some(rhs_col)` instead
+/// of `None` for "accept" cases, preventing the fallback from incorrectly
+/// flagging hash pair values that are properly aligned.
+///
+/// Sample-15 corpus validation: 0 FP regression, 0 FN regression,
+/// -431 FP resolved, -4,416 FN resolved.
 pub struct MultilineMethodCallIndentation;
 
 impl Cop for MultilineMethodCallIndentation {
@@ -182,9 +206,10 @@ impl ChainVisitor<'_> {
             return;
         }
 
-        let expected = match self.style {
+        // Track whether to use aligned or indented message format
+        let (expected, use_aligned_msg) = match self.style {
             "indented" | "indented_relative_to_receiver" => {
-                self.expected_indented(call_node, &receiver)
+                (self.expected_indented(call_node, &receiver), false)
             }
             _ => {
                 // "aligned" (default)
@@ -195,16 +220,21 @@ impl ChainVisitor<'_> {
                     rhs_col,
                     is_trailing_dot,
                 ) {
-                    Some(col) => col,
-                    None => return, // no alignment base, accept whatever position
+                    Some(col) => (col, true),
+                    None => {
+                        // No alignment base found — fall back to indented behavior,
+                        // matching RuboCop's `indentation(lhs) + correct_indentation(node)`
+                        (self.expected_indented(call_node, &receiver), false)
+                    }
                 }
             }
         };
 
         if rhs_col != expected {
-            let msg = match self.style {
-                "aligned" => self.aligned_message(call_node, &receiver, is_trailing_dot),
-                _ => self.indented_message(call_node, &receiver, rhs_col),
+            let msg = if use_aligned_msg {
+                self.aligned_message(call_node, &receiver, is_trailing_dot)
+            } else {
+                self.indented_message(call_node, &receiver, rhs_col)
             };
             self.diagnostics
                 .push(self.cop.diagnostic(self.source, rhs_line, rhs_col, msg));
@@ -299,7 +329,7 @@ impl ChainVisitor<'_> {
             // matches an inline dot on the chain's first line, accept.
             let chain_root_line = find_chain_start_line(self.source, receiver);
             if has_matching_dot_on_line(self.source, receiver, chain_root_line, rhs_col) {
-                return None; // Accept — aligned with first line dot
+                return Some(rhs_col); // Accept — aligned with first line dot
             }
 
             // Block chain continuation
@@ -528,6 +558,13 @@ fn find_syntactic_alignment(
         return Some(chain_root_col);
     }
 
+    // Multi-line assignment RHS: `a =\n  b\n  .c` — the `=` is on the
+    // previous line, so `assignment_context_base_col` misses it.
+    if prev_line_ends_with_assignment(source, receiver) {
+        let chain_root_col = find_chain_root_col(source, receiver);
+        return Some(chain_root_col);
+    }
+
     None
 }
 
@@ -568,6 +605,39 @@ fn keyword_condition_alignment(
     }
 
     None
+}
+
+/// Check if the line above the chain root ends with an assignment operator (`=`, `+=`, etc.).
+/// This handles multi-line assignments like `a =\n  b\n  .c` where `assignment_context_base_col`
+/// only checks the same line as the chain root.
+fn prev_line_ends_with_assignment(source: &SourceFile, receiver: &ruby_prism::Node<'_>) -> bool {
+    let root_offset = find_chain_root_offset(receiver);
+    let (root_line, _) = source.offset_to_line_col(root_offset);
+    if root_line <= 1 {
+        return false;
+    }
+    let prev_bytes = source.lines().nth(root_line - 2).unwrap_or(b"");
+    // Find the last non-whitespace character
+    let mut last_non_ws = None;
+    let mut second_last = None;
+    for &b in prev_bytes.iter().rev() {
+        if b == b' ' || b == b'\t' || b == b'\r' {
+            continue;
+        }
+        if last_non_ws.is_none() {
+            last_non_ws = Some(b);
+        } else if second_last.is_none() {
+            second_last = Some(b);
+            break;
+        }
+    }
+    match last_non_ws {
+        Some(b'=') => {
+            // Exclude ==, !=, <=, >=
+            !matches!(second_last, Some(b'=' | b'!' | b'<' | b'>'))
+        }
+        _ => false,
+    }
 }
 
 /// Find the column of a previous continuation dot in the receiver chain.

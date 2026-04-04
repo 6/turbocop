@@ -146,6 +146,11 @@ if /(?<name>\d+)/ =~ input
   name
 end
 
+# Bare regexp literal on the LHS of =~ should not suggest modifier form
+if /foo/ =~ bar
+  baz
+end
+
 # Endless method definition in body — Style/AmbiguousEndlessMethodDefinition conflict
 if condition
   def method_name = body

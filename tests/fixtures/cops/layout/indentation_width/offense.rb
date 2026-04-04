@@ -193,3 +193,25 @@ module TabModule
 	CONST = 1
 	^^^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
 end
+
+# def body with rescue — body should still be checked for indentation
+def method_with_rescue
+    do_something
+    ^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+rescue StandardError
+  handle_error
+end
+
+# def body with ensure — body should still be checked for indentation
+def method_with_ensure
+    do_something
+    ^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+ensure
+  cleanup
+end
+
+# def with misaligned end — indentation checked from def line start
+  def misaligned_end_method
+      body_here
+      ^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+end

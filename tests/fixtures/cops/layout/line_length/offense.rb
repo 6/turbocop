@@ -86,3 +86,21 @@ raise Puppet::Network::HTTP::Error::HTTPNotFoundError.new(
 
         expect(@venue.tags.last.machine_tag.url).to eq "http://my-calagator.org/defunct?url=https://web.archive.org/web/#{venue_date}/http://upcoming.yahoo.com/venue/1234"
                                                                                                                         ^ Layout/LineLength: Line is too long. [171/120]
+
+        artist_commentary_desc: "今週のらくがき\n\nhttps://downloads.fanbox.cc/images/post/209386/Q8rZ0iMHpcmJDACEzNGjTj9E.jpeg\n水着BBちゃん\nhttps://downloads.fanbox.cc/images/post/209386/8dRNHXkFqAwSt31W2Bg8fSdL.jpeg\n第一再臨もセクシー\n",
+                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineLength: Line is too long. [222/120]
+
+        @artist1 = create(:artist, name: "aaa", group_name: "g_aaa", other_names: "111 222", url_string: "https://x.com/111\n-https://x.com/222")
+                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineLength: Line is too long. [145/120]
+
+        @artist2 = create(:artist, name: "bbb", other_names: "111 333", url_string: "https://x.com/111\n-https://x.com/333\nhttps://x.com/444")
+                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineLength: Line is too long. [143/120]
+
+          "Documentation: [https://developer.github.com/v3/repos/contents/#create-a-file](https://developer.github.com/v3/repos/contents/#create-a-file)."
+                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineLength: Line is too long. [154/120]
+
+          "More information about how the lane context works: [https://docs.fastlane.tools/advanced/#lane-context](https://docs.fastlane.tools/advanced/#lane-context)."
+                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineLength: Line is too long. [168/120]
+
+        "More information: [http://tryouts.readthedocs.org/en/latest/releases.html#create-release](http://tryouts.readthedocs.org/en/latest/releases.html#create-release)"
+                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineLength: Line is too long. [170/120]

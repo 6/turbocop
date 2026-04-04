@@ -490,7 +490,42 @@ def get_corpus_data(
         "fn_examples": cop_entry.get("fn_examples", []),
         "repo_breakdown": repo_breakdown,
         "available": True,
+        "variants": [],  # populated later by caller if needed
     }
+
+
+def load_variant_data_for_cop(cop: str, run_id: int | str | None = None) -> list[dict]:
+    """Load per-style variant divergence data for a cop.
+
+    Returns list of {style_label, matches, fp, fn} for each variant
+    that includes the cop. Empty list if no variant data available.
+    """
+    from shared.corpus_artifacts import get_variant_results_path
+    if run_id is None:
+        # Try to get run_id from the latest download
+        try:
+            _, rid, _ = _download_corpus()
+            run_id = rid
+        except Exception:
+            return []
+    path = get_variant_results_path(int(run_id)) if run_id else None
+    if not path:
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    variants = []
+    for batch in data.get("batches", []):
+        for cop_entry in batch.get("by_cop", []):
+            if cop_entry.get("cop") == cop:
+                variants.append({
+                    "style_label": cop_entry.get("style_label", batch.get("name", "?")),
+                    "matches": cop_entry.get("matches", 0),
+                    "fp": cop_entry.get("fp", 0),
+                    "fn": cop_entry.get("fn", 0),
+                })
+    return variants
 
 
 def safe_get_corpus_data(
@@ -1638,6 +1673,34 @@ forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
         parts.append(format_corpus_section(cop, corpus, None))
         parts.append("")
 
+    # Style variant divergence — shows which non-default styles are broken
+    variants = load_variant_data_for_cop(cop)
+    diverging_variants = [v for v in variants if v["fp"] + v["fn"] > 0]
+    if diverging_variants:
+        parts.append("## Style Variant Divergence\n")
+        parts.append(
+            "This cop has divergence under non-default style configurations "
+            "(tested by the corpus oracle's variant batches):\n"
+        )
+        parts.append("| Style | Matches | FP | FN |")
+        parts.append("|-------|--------:|---:|---:|")
+        for v in sorted(diverging_variants, key=lambda x: x["fp"] + x["fn"], reverse=True):
+            parts.append(
+                f"| {v['style_label']} | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} |"
+            )
+        parts.append("")
+        if corpus.get("fp", 0) + corpus.get("fn", 0) > 0:
+            parts.append(
+                "Fix the default config divergence first. Then investigate "
+                "the variant divergence listed above.\n"
+            )
+        else:
+            parts.append(
+                "The default config is already perfect. Focus on fixing the "
+                "non-default style variant divergence listed above. Use "
+                "`check_cop.py --style PARAM=VALUE` to test specific styles.\n"
+            )
+
     return "\n".join(parts)
 
 
@@ -2083,6 +2146,7 @@ def render_issue_body(
     corpus_kind: str,
     run_id: str | None,
     head_sha: str | None,
+    variant_entries: list[dict] | None = None,
 ) -> str:
     fp = entry.get("fp", 0)
     fn = entry.get("fn", 0)
@@ -2093,7 +2157,7 @@ def render_issue_body(
         "",
         "This issue is managed by the corpus dispatch backlog automation.",
         "",
-        "## Corpus Status",
+        "## Corpus Status (default config)",
         "",
         f"- Cop: `{cop}`",
         f"- Corpus: `{corpus_kind}`",
@@ -2110,11 +2174,37 @@ def render_issue_body(
         lines.append(f"- Corpus head SHA: `{head_sha}`")
     if open_pr:
         lines.append(f"- Open bot PR: #{open_pr['number']} ({open_pr['url']})")
+
+    # Variant divergence section
+    diverging_variants = [
+        v for v in (variant_entries or [])
+        if v.get("fp", 0) + v.get("fn", 0) > 0
+    ]
+    if diverging_variants:
+        lines.extend([
+            "",
+            "## Style Variant Divergence",
+            "",
+        ])
+        if total == 0:
+            lines.append("Default config is perfect. Divergence is in non-default styles only:")
+        else:
+            lines.append("Additional divergence under non-default styles:")
+        lines.extend([
+            "",
+            "| Style | Matches | FP | FN |",
+            "|-------|--------:|---:|---:|",
+        ])
+        for v in sorted(diverging_variants, key=lambda x: x["fp"] + x["fn"], reverse=True):
+            lines.append(
+                f"| {v.get('style_label', '?')} | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} |"
+            )
+
     lines.extend([
         "",
         "## Automation Notes",
         "",
-        "- This issue stays open while the cop still diverges or a bot PR is active.",
+        "- This issue stays open while the cop still diverges (default or variant) or a bot PR is active.",
         "- If a later corpus run shows the cop diverging again after merge, this same issue should be reopened and reused.",
         "",
         render_tracker_marker(cop, fp, fn, matches, difficulty),
@@ -2480,6 +2570,29 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
     binary = args.binary.resolve() if args.binary else None
     diverging_cops = {cop for cop, entry in entries.items() if total_for_entry(entry) > 0}
 
+    # Expand diverging set with variant-only divergence: cops that are
+    # perfect in default config but broken under non-default styles.
+    variant_diverging: dict[str, list[dict]] = {}  # cop -> variant entries
+    from shared.corpus_artifacts import get_variant_results_path
+    variant_path = get_variant_results_path(int(run_id)) if run_id else None
+    if variant_path:
+        try:
+            vdata = json.loads(variant_path.read_text())
+            for batch in vdata.get("batches", []):
+                for cop_entry in batch.get("by_cop", []):
+                    cn = cop_entry.get("cop", "")
+                    if cn and cop_entry.get("fp", 0) + cop_entry.get("fn", 0) > 0:
+                        variant_diverging.setdefault(cn, []).append(cop_entry)
+        except (json.JSONDecodeError, OSError):
+            pass
+    variant_only_cops = set(variant_diverging.keys()) - diverging_cops
+    if variant_only_cops:
+        print(
+            f"  {len(variant_only_cops)} cops diverge only in style variants",
+            file=sys.stderr,
+        )
+    diverging_cops |= variant_only_cops
+
     # Filter by department if requested
     dept_filter = args.department
     if dept_filter:
@@ -2564,6 +2677,7 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
             corpus_kind=corpus_kind,
             run_id=run_id,
             head_sha=head_sha,
+            variant_entries=variant_diverging.get(cop, []),
         )
 
         if existing_issue is None:

@@ -17,3 +17,8 @@ x = "normal string"
 # %Q with interpolation AND double quotes is not redundant
 %Q("hi#{4}")
 %Q(She said "yes" #{name})
+
+# %Q with escaped interpolation text still matches RuboCop's interpolation source check
+%Q{
+send("\#{name}=", value)
+}

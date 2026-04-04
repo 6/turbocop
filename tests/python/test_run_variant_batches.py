@@ -151,6 +151,70 @@ def test_merge_variant_results_without_batches_dir(tmp_path):
     assert "style_label" not in batch["by_cop"][0]
 
 
+def test_run_variant_batches_passes_only_flag(tmp_path):
+    """Variant runs pass --only with only the cops overridden in that batch."""
+    batches_dir = tmp_path / "batches"
+    batches_dir.mkdir()
+    (batches_dir / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Foo:\n"
+        "  EnforcedStyle: bar\n"
+        "Layout/Baz:\n"
+        "  EnforcedStyle: qux\n"
+    )
+    (batches_dir / "variant_batch_2.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Foo:\n"
+        "  EnforcedStyle: baz\n"
+    )
+
+    # Capture commands passed to _run_tool
+    cmds = []
+    original_run_tool = run_variant_batches._run_tool
+
+    def fake_run_tool(*, cmd, env, timeout, stdout_path, stderr_path, label):
+        cmds.append({"cmd": cmd, "label": label})
+        # Write minimal valid JSON so the tool "succeeds"
+        stdout_path.write_text('{"offenses": [], "files": []}')
+        return True
+
+    run_variant_batches._run_tool = fake_run_tool
+    try:
+        run_variant_batches.run_variant_batches(
+            repo_dir=str(tmp_path),
+            repo_id="test_repo",
+            binary="/fake/nitrocop",
+            batches_dir=str(batches_dir),
+            results_dir=str(tmp_path / "results"),
+        )
+    finally:
+        run_variant_batches._run_tool = original_run_tool
+
+    # 2 batches × 2 tools (nitrocop + rubocop) = 4 commands
+    assert len(cmds) == 4
+
+    # Batch 1: --only should include both Style/Foo and Layout/Baz
+    nc_batch1 = cmds[0]["cmd"]
+    rc_batch1 = cmds[1]["cmd"]
+    assert "--only" in nc_batch1
+    only_idx = nc_batch1.index("--only")
+    only_val = nc_batch1[only_idx + 1]
+    assert "Layout/Baz" in only_val
+    assert "Style/Foo" in only_val
+    # Rubocop also gets --only
+    assert "--only" in rc_batch1
+
+    # Batch 2: --only should include only Style/Foo
+    nc_batch2 = cmds[2]["cmd"]
+    only_idx = nc_batch2.index("--only")
+    only_val = nc_batch2[only_idx + 1]
+    assert only_val == "Style/Foo"
+
+    # Labels should show cop counts
+    assert "2 cops" in cmds[0]["label"]
+    assert "1 cops" in cmds[2]["label"]
+
+
 def test_discover_batches_empty(tmp_path):
     """No batches in empty directory."""
     assert run_variant_batches.discover_batches(tmp_path) == []

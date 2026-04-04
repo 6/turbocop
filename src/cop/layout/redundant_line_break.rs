@@ -85,7 +85,18 @@ use crate::parse::source::SourceFile;
 ///   a parent node), so calls inside block bodies are checked independently.
 ///   In Prism, `CallNode` includes the block, so the old code suppressed ALL
 ///   calls inside block bodies of chains. Now only the chain portion (up to the
-///   block start) is marked as checked.
+///   block start) is marked as checked. Additionally, `part_of_checked_chain`
+///   now checks whether a node is inside a block body within the chain range
+///   (via `inside_block_body_within_chain`), so calls like `extract_uris(...)`
+///   inside `search_results.map do ... end.flatten` are correctly unsuppressed
+///   even when the outer chain's range encompasses the block body.
+/// - **Non-convertible block handling**: When a `CallNode` has a block that is NOT
+///   convertible (i.e., the call has arguments but no parentheses, like
+///   `config.wrappers :default, ... do |b| ... end`), the offense check now uses
+///   the "send-only" range (up to the block start) instead of the full range.
+///   In RuboCop's Parser AST, `on_send` walks up through convertible blocks but
+///   stops at non-convertible ones, checking only the send portion. This recovers
+///   ~2,653 FNs and resolves ~616 FPs with zero regressions.
 pub struct RedundantLineBreak;
 
 impl Cop for RedundantLineBreak {
@@ -473,113 +484,30 @@ impl<'a, 'pr> RedundantLineBreakVisitor<'a, 'pr> {
     /// Check if a node is an inner part of a call chain that was already checked.
     /// This prevents inner CallNodes from being individually checked when the
     /// outermost CallNode in the chain was already visited (and either reported or rejected).
+    /// Calls inside block bodies within the chain are NOT suppressed — in RuboCop's
+    /// Parser AST, blocks are parent nodes (not part of the send's range), so calls
+    /// inside block bodies are checked independently.
     fn part_of_checked_chain(&self, start_offset: usize, end_offset: usize) -> bool {
         self.checked_chain_ranges.iter().any(|&(cs, ce)| {
-            start_offset >= cs && end_offset <= ce && (start_offset > cs || end_offset < ce)
+            start_offset >= cs
+                && end_offset <= ce
+                && (start_offset > cs || end_offset < ce)
+                && !self.inside_block_body_within_chain(start_offset, end_offset, cs, ce)
         })
     }
 
-    fn has_only_keyword_hash_arguments(&self, node: &ruby_prism::CallNode<'_>) -> bool {
-        let Some(args) = node.arguments() else {
-            return false;
-        };
-
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        arg_list.len() == 1 && arg_list[0].as_keyword_hash_node().is_some()
-    }
-
-    fn contained_in_checked_chain_with_different_start(
+    /// Returns true if the node at (start, end) is inside a block body that
+    /// itself is contained within the checked chain range (cs, ce).
+    fn inside_block_body_within_chain(
         &self,
-        start_offset: usize,
-        end_offset: usize,
+        start: usize,
+        end: usize,
+        chain_start: usize,
+        chain_end: usize,
     ) -> bool {
-        self.checked_chain_ranges
+        self.block_ranges
             .iter()
-            .any(|&(cs, ce)| start_offset > cs && end_offset <= ce)
-    }
-
-    fn checked_chain_exact_match(&self, start_offset: usize, end_offset: usize) -> bool {
-        self.checked_chain_ranges
-            .iter()
-            .any(|&(cs, ce)| start_offset == cs && end_offset == ce)
-    }
-
-    fn has_bare_or_constant_receiver(&self, node: &ruby_prism::CallNode<'_>) -> bool {
-        node.receiver().is_none_or(|receiver| {
-            receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some()
-        })
-    }
-
-    fn allowed_multiline_block_send_name(&self, name: &[u8]) -> bool {
-        matches!(name, b"each" | b"select" | b"each_with_object" | b"map")
-    }
-
-    fn allows_direct_block_send_checked_chain(
-        &self,
-        block: &ruby_prism::BlockNode<'_>,
-        block_call: &ruby_prism::CallNode<'_>,
-    ) -> bool {
-        let block_call_loc = block_call.location();
-        if self
-            .checked_chain_exact_match(block_call_loc.start_offset(), block_call_loc.end_offset())
-        {
-            return true;
-        }
-
-        self.ancestors.iter().any(|ancestor| {
-            ancestor.as_call_node().is_some_and(|parent_call| {
-                let Some(receiver) = parent_call.receiver() else {
-                    return false;
-                };
-
-                let receiver_loc = receiver.location();
-                let block_loc = block.location();
-                let parent_loc = parent_call.location();
-                let receiver_matches_block = receiver_loc.start_offset()
-                    == block_loc.start_offset()
-                    && receiver_loc.end_offset() == block_loc.end_offset();
-                let receiver_matches_block_call = receiver_loc.start_offset()
-                    == block_call_loc.start_offset()
-                    && receiver_loc.end_offset() == block_call_loc.end_offset();
-
-                (receiver_matches_block || receiver_matches_block_call)
-                    && self.checked_chain_exact_match(
-                        parent_loc.start_offset(),
-                        parent_loc.end_offset(),
-                    )
-            })
-        })
-    }
-
-    fn is_direct_single_statement_multiline_block_body_call(
-        &self,
-        node: &ruby_prism::CallNode<'_>,
-    ) -> Option<(ruby_prism::BlockNode<'pr>, ruby_prism::CallNode<'pr>)> {
-        let node_loc = node.location();
-        let current_idx = self.ancestors.iter().rposition(|ancestor| {
-            ancestor.as_call_node().is_some_and(|call| {
-                let loc = call.location();
-                loc.start_offset() == node_loc.start_offset()
-                    && loc.end_offset() == node_loc.end_offset()
-            })
-        })?;
-
-        if current_idx < 3 {
-            return None;
-        }
-
-        let statements = self.ancestors[current_idx - 1].as_statements_node()?;
-        if statements.body().len() != 1 {
-            return None;
-        }
-
-        let block = self.ancestors[current_idx - 2].as_block_node()?;
-
-        let block_call = self.ancestors[current_idx - 3].as_call_node()?;
-
-        let loc = block.location();
-        self.is_multiline(loc.start_offset(), loc.end_offset())
-            .then_some((block, block_call))
+            .any(|&(bs, be, _)| bs >= chain_start && be <= chain_end && start >= bs && end <= be)
     }
 
     fn register_offense(&mut self, start_offset: usize, end_offset: usize) {
@@ -617,20 +545,30 @@ impl<'pr> Visit<'pr> for RedundantLineBreakVisitor<'_, 'pr> {
         let loc = node.location();
         let start_offset = loc.start_offset();
         let end_offset = loc.end_offset();
-        let allow_keyword_hash_inner_call = self
-            .contained_in_checked_chain_with_different_start(start_offset, end_offset)
-            && self.has_only_keyword_hash_arguments(node)
-            && self.has_bare_or_constant_receiver(node)
-            && self
-                .is_direct_single_statement_multiline_block_body_call(node)
-                .is_some_and(|(block, block_call)| {
-                    self.allowed_multiline_block_send_name(block_call.name().as_slice())
-                        && self.allows_direct_block_send_checked_chain(&block, &block_call)
-                });
-        let skip_for_checked_chain =
-            self.part_of_checked_chain(start_offset, end_offset) && !allow_keyword_hash_inner_call;
 
-        if self.is_multiline(start_offset, end_offset)
+        // In RuboCop's Parser AST, the block is a parent node of the send.
+        // In Prism, the CallNode includes the block. For offense checks, use
+        // the "send-only" range (excluding the block) when the block is NOT
+        // convertible. A block is convertible when the send is parenthesized
+        // or has no args — in that case, RuboCop's walk-up merges them.
+        let has_non_convertible_block =
+            node.block()
+                .and_then(|b| b.as_block_node())
+                .is_some_and(|_| {
+                    // Not convertible: has arguments AND is not parenthesized
+                    node.arguments().is_some() && node.opening_loc().is_none()
+                });
+        let check_end = if has_non_convertible_block {
+            node.block()
+                .and_then(|b| b.as_block_node())
+                .map_or(end_offset, |block| block.location().start_offset())
+        } else {
+            end_offset
+        };
+
+        let skip_for_checked_chain = self.part_of_checked_chain(start_offset, end_offset);
+
+        if self.is_multiline(start_offset, check_end)
             && !self.part_of_reported_node(start_offset, end_offset)
             && !skip_for_checked_chain
         {
@@ -663,10 +601,10 @@ impl<'pr> Visit<'pr> for RedundantLineBreakVisitor<'_, 'pr> {
             };
 
             if !is_index_chain
-                && self.suitable_as_single_line(start_offset, end_offset)
-                && !self.configured_to_not_be_inspected(start_offset, end_offset)
+                && self.suitable_as_single_line(start_offset, check_end)
+                && !self.configured_to_not_be_inspected(start_offset, check_end)
             {
-                self.register_offense(start_offset, end_offset);
+                self.register_offense(start_offset, check_end);
             }
         }
 

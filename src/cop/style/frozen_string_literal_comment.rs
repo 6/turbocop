@@ -2,16 +2,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Recent corpus fixes for RuboCop parity:
-/// 1. `# frozen_string_literal:` only counts as a valid magic comment when its value is
-///    `true` or `false` (case-insensitive). Malformed values like `tru` must be treated as
-///    missing comments, not as present-but-disabled directives.
-/// 2. `__END__` only suppresses this cop for bare data files whose first non-blank line is
-///    `__END__`. RuboCop still flags files that have leading shebang, encoding, or ordinary
-///    comments before `__END__`, so this cop must not skip those.
+/// Matches RuboCop's leading magic-comment scan more closely in encoded files.
 ///
-/// Remaining corpus FPs around `vendor/` and `.rb.spec` paths are config/include issues rather
-/// than content-matching bugs in this cop.
+/// This cop previously bailed out on any non-UTF-8 byte or any NUL byte in the file, which hid
+/// real offenses when the header was plain ASCII but the body used EUC-JP/ISO-8859 bytes, a
+/// gemspec stub embedded a later NUL, or the whole file was UTF-16LE without a BOM. The fix keeps
+/// the top-of-file scan byte-oriented so those headers still produce offenses, while preserving the
+/// early return for truly undecodable files that do not advertise an encoding in the leading lines.
 pub struct FrozenStringLiteralComment;
 
 impl Cop for FrozenStringLiteralComment {
@@ -32,14 +29,23 @@ impl Cop for FrozenStringLiteralComment {
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "always");
 
-        // Skip files with non-UTF-8 content — RuboCop's tokenizer produces no tokens
-        // for files with encoding errors (e.g., invalid UTF-8, UTF-16, ISO-8859),
-        // so it returns early via `processed_source.tokens.empty?`.
-        if std::str::from_utf8(source.as_bytes()).is_err() || source.as_bytes().contains(&0x00) {
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let has_null_bytes = source.as_bytes().contains(&0x00);
+
+        // RuboCop flags UTF-16LE files without a BOM, but not the BE variant.
+        if looks_like_utf16be_without_bom(source.as_bytes()) {
             return;
         }
 
-        let lines: Vec<&[u8]> = source.lines().collect();
+        // Preserve the old early return only for truly undecodable files that lack a leading
+        // encoding directive. RuboCop still flags files whose magic comments are plain ASCII even
+        // when later bytes are non-UTF-8 or UTF-16/NUL-padded.
+        if !has_null_bytes
+            && std::str::from_utf8(source.as_bytes()).is_err()
+            && !has_leading_encoding_comment(&lines)
+        {
+            return;
+        }
 
         if enforced_style == "never" {
             // Flag the presence of frozen_string_literal comment as unnecessary
@@ -77,7 +83,7 @@ impl Cop for FrozenStringLiteralComment {
         // Lint/EmptyFile handles these instead.
         let has_content = lines
             .iter()
-            .any(|l| !l.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r'));
+            .any(|line| first_non_padding_byte(line).is_some());
         if !has_content {
             return;
         }
@@ -91,7 +97,7 @@ impl Cop for FrozenStringLiteralComment {
         let mut idx = 0;
 
         // Skip shebang
-        if idx < lines.len() && lines[idx].starts_with(b"#!") {
+        if idx < lines.len() && starts_with_shebang(lines[idx]) {
             idx += 1;
         }
 
@@ -187,32 +193,76 @@ impl Cop for FrozenStringLiteralComment {
 /// with no leading comments or shebang lines ahead of it.
 fn starts_with_end_data_only(lines: &[&[u8]]) -> bool {
     for line in lines {
-        if is_blank_line(line) {
-            continue;
+        match first_non_padding_byte(line) {
+            None => continue,
+            Some(b'#') => return false,
+            Some(b'_') => {
+                let trimmed = trimmed_ascii_bytes(line);
+                return trimmed.starts_with(b"__END__");
+            }
+            Some(_) => return false,
         }
-        let trimmed: &[u8] = {
-            let start = line
-                .iter()
-                .position(|&b| b != b' ' && b != b'\t')
-                .unwrap_or(line.len());
-            &line[start..]
-        };
-        if trimmed.starts_with(b"#") {
-            return false;
-        }
-        // First non-blank, non-comment line.
-        return trimmed.starts_with(b"__END__");
     }
     false
 }
 
+fn normalized_ascii_bytes(line: &[u8]) -> Vec<u8> {
+    line.iter()
+        .copied()
+        .filter(|&b| b != 0x00 && b.is_ascii())
+        .collect()
+}
+
+fn looks_like_utf16be_without_bom(bytes: &[u8]) -> bool {
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        return false;
+    }
+
+    let sample: Vec<[u8; 2]> = bytes
+        .chunks_exact(2)
+        .take(6)
+        .filter_map(|pair| <[u8; 2]>::try_from(pair).ok())
+        .collect();
+
+    sample.len() >= 3
+        && sample
+            .iter()
+            .all(|pair| pair[0] == 0x00 && pair[1].is_ascii())
+        && sample
+            .iter()
+            .any(|pair| matches!(pair[1], b'#' | b' ' | b'e' | b'c'))
+}
+
+fn trimmed_ascii_bytes(line: &[u8]) -> Vec<u8> {
+    let ascii = normalized_ascii_bytes(line);
+    let start = ascii
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t' && b != b'\r')
+        .unwrap_or(ascii.len());
+    ascii[start..].to_vec()
+}
+
+fn normalized_ascii_string(line: &[u8]) -> String {
+    String::from_utf8(normalized_ascii_bytes(line)).expect("ASCII normalization must stay ASCII")
+}
+
+fn first_non_padding_byte(line: &[u8]) -> Option<u8> {
+    line.iter()
+        .copied()
+        .filter(|&b| b != 0x00)
+        .find(|&b| b != b' ' && b != b'\t' && b != b'\r')
+}
+
+fn starts_with_shebang(line: &[u8]) -> bool {
+    normalized_ascii_bytes(line).starts_with(b"#!")
+}
+
 fn is_comment_line(line: &[u8]) -> bool {
-    let trimmed = line.iter().skip_while(|&&b| b == b' ' || b == b'\t');
-    matches!(trimmed.clone().next(), Some(b'#'))
+    first_non_padding_byte(line) == Some(b'#')
 }
 
 fn is_blank_line(line: &[u8]) -> bool {
-    line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+    first_non_padding_byte(line).is_none()
 }
 
 fn is_comment_or_blank_line(line: &[u8]) -> bool {
@@ -220,21 +270,33 @@ fn is_comment_or_blank_line(line: &[u8]) -> bool {
 }
 
 fn is_encoding_comment(line: &[u8]) -> bool {
-    let s = match std::str::from_utf8(line) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
+    let s = normalized_ascii_string(line);
+    let trimmed = s.trim_start_matches([' ', '\t']);
+    let lower = trimmed.to_ascii_lowercase();
     // Explicit encoding/coding directive: `# encoding: utf-8` or `# coding: utf-8`
-    if s.starts_with("# encoding:") || s.starts_with("# coding:") {
+    if lower.starts_with("# encoding:") || lower.starts_with("# coding:") {
         return true;
     }
     // Emacs-style mode line: `# -*- encoding: utf-8 -*-` or `# -*- coding: utf-8 -*-`
     // The space before the colon is optional: `# -*- encoding : utf-8 -*-`
-    if s.starts_with("# -*-") {
-        let lower = s.to_ascii_lowercase();
+    if lower.starts_with("# -*-") {
         return lower.contains("encoding") || lower.contains("coding");
     }
     false
+}
+
+fn has_leading_encoding_comment(lines: &[&[u8]]) -> bool {
+    let mut idx = 0;
+
+    if idx < lines.len() && starts_with_shebang(lines[idx]) {
+        idx += 1;
+    }
+
+    while idx < lines.len() && is_blank_line(lines[idx]) {
+        idx += 1;
+    }
+
+    idx < lines.len() && is_encoding_comment(lines[idx])
 }
 
 /// Match `frozen_string_literal:` or `frozen-string-literal:` case-insensitively,
@@ -247,7 +309,9 @@ fn is_encoding_comment(line: &[u8]) -> bool {
 /// For Emacs-style comments (`# -*- ... -*-`), the key can appear anywhere
 /// among semicolon-separated directives.
 fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
-    frozen_string_literal_value(line).is_some_and(is_frozen_string_literal_boolean)
+    frozen_string_literal_value(line)
+        .as_deref()
+        .is_some_and(is_frozen_string_literal_boolean)
 }
 
 /// Check if a string STARTS WITH `frozen_string_literal:` or `frozen-string-literal:`
@@ -266,18 +330,27 @@ fn starts_with_frozen_string_literal_key(s: &str) -> bool {
 }
 
 fn is_frozen_string_literal_true(line: &[u8]) -> bool {
-    frozen_string_literal_value(line).is_some_and(|value| value.eq_ignore_ascii_case("true"))
+    frozen_string_literal_value(line)
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
 }
 
-fn frozen_string_literal_value(line: &[u8]) -> Option<&str> {
-    let s = std::str::from_utf8(line).ok()?;
-    let trimmed = s.trim_start().strip_prefix('#')?.trim_start();
+fn frozen_string_literal_value(line: &[u8]) -> Option<String> {
+    let normalized = normalized_ascii_string(line);
+    let trimmed = normalized.trim_start().strip_prefix('#')?.trim_start();
     if trimmed.starts_with("-*-") && trimmed.ends_with("-*-") {
         let after_key = strip_frozen_string_literal_key(trimmed)?;
-        return Some(after_key.split([';', '-']).next().unwrap_or("").trim());
+        return Some(
+            after_key
+                .split([';', '-'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+        );
     }
     let after_key = strip_prefix_frozen_string_literal_key(trimmed)?;
-    Some(after_key.trim())
+    Some(after_key.trim().to_string())
 }
 
 fn is_frozen_string_literal_boolean(value: &str) -> bool {
@@ -318,12 +391,21 @@ fn strip_frozen_string_literal_key(s: &str) -> Option<&str> {
 mod tests {
     use super::*;
 
+    fn utf16le_bytes(text: &str) -> Vec<u8> {
+        text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+
+    fn utf16be_bytes(text: &str) -> Vec<u8> {
+        text.encode_utf16().flat_map(u16::to_be_bytes).collect()
+    }
+
     crate::cop_scenario_fixture_tests!(
         FrozenStringLiteralComment,
         "cops/style/frozen_string_literal_comment",
         plain_missing = "plain_missing.rb",
         shebang_missing = "shebang_missing.rb",
         encoding_missing = "encoding_missing.rb",
+        generated_gemspec_missing = "generated_gemspec_missing.rb",
         double_hash_frozen = "double_hash_frozen.rb",
         invalid_token = "invalid_token.rb",
         comment_before_end = "comment_before_end.rb",
@@ -718,16 +800,63 @@ mod tests {
     }
 
     #[test]
-    fn skip_file_with_null_bytes() {
-        // UTF-16 encoded files have null bytes — should not be flagged
-        let content = vec![0x00, b'#', 0x00, b' ', 0x00, b'e', 0x00, b'\n'];
+    fn flags_utf16le_file_without_bom() {
+        let content = utf16le_bytes("# encoding: utf-16le\nputs 'hello'\n");
+        let source = SourceFile::from_bytes("test.rb", content);
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(
+            diags.len(),
+            1,
+            "UTF-16LE files should still be flagged for a missing comment"
+        );
+        assert_eq!(diags[0].location.line, 1);
+    }
+
+    #[test]
+    fn skips_utf16be_file_without_bom() {
+        let content = utf16be_bytes("# encoding: utf-16be\nputs 'hello'\n");
         let source = SourceFile::from_bytes("test.rb", content);
         let mut diags = Vec::new();
         FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(
             diags.is_empty(),
-            "Should not flag files with null bytes (e.g., UTF-16)"
+            "UTF-16BE files without a BOM should remain unflagged"
         );
+    }
+
+    #[test]
+    fn flags_non_utf8_file_with_encoding_comment() {
+        let mut content = b"# encoding: EUC-JP\nputs \"135".to_vec();
+        content.extend_from_slice(&[0xA1, 0xA1]);
+        content.extend_from_slice(b"C\"\n");
+        let source = SourceFile::from_bytes("test.rb", content);
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Non-UTF-8 files with a leading encoding comment should be flagged"
+        );
+        assert_eq!(diags[0].location.line, 1);
+    }
+
+    #[test]
+    fn flags_ascii_header_when_file_contains_later_null_bytes() {
+        let mut content = b"# Generated by juwelier\n# DO NOT EDIT THIS FILE DIRECTLY\n# Instead, edit Juwelier::Tasks in Rakefile, and run 'rake gemspec'\n# -*- encoding: utf-8 -*-\n# stub: glimmer-dsl-swt 4.30.1.1 ruby lib".to_vec();
+        content.push(0x00);
+        content.extend_from_slice(
+            b"bin\n\nGem::Specification.new do |s|\n  s.name = \"glimmer-dsl-swt\".freeze\nend\n",
+        );
+        let source = SourceFile::from_bytes("test.rb", content);
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Later null bytes should not suppress the missing comment offense"
+        );
+        assert_eq!(diags[0].location.line, 1);
     }
 
     #[test]

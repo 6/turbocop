@@ -83,6 +83,30 @@ Class.new do
   end
 end
 
+class Dog
+  def method_missing(method_name, *args, &block)
+    if method_name == :bark
+      'woof!'
+    else
+      super
+    end
+  end
+end
+
+class Dog
+  def method_missing(method_name, *args, &block)
+    if method_name == :bark
+      'woof!'
+    else
+      super
+    end
+  end
+
+  def respond_to_missing?(method_name, *args)
+    method_name == :bark || super
+  end
+end
+
 # Keep only the unstable top-level forms here: RuboCop still reports many
 # explicit-arg top-level `method_missing` defs, but file-leading block-arg
 # forms and zero-arg/rest-only signatures are inconsistent.

@@ -60,6 +60,18 @@ thread_local! {
 ///   (`class Foo < base`) were not detected as used, producing false positives.
 ///   Fixed to visit these "twisted" expressions while still skipping the body.
 ///
+/// ## Fix: `captured_by_block` false positive in usage check
+///
+/// The cop previously used `variable.used()` which returns `true` when
+/// `captured_by_block` is set. The VF engine sets `captured_by_block` when a
+/// variable is written to from a block scope (e.g., `items.each { last = nil }`).
+/// However, a cross-scope **write** is not the same as a **read** — the
+/// parameter's original value is never consumed. RuboCop's `variable.referenced?`
+/// only checks `!@references.empty?`, ignoring `captured_by_block`. Fixed to
+/// match: the cop now checks `!variable.references.is_empty()` instead of
+/// `variable.used()`. This resolved 8 FN in corpus repos (`ruby/tk`,
+/// `rcodetools/rcodetools`, `riscv/riscv-unified-db`).
+///
 /// ## Migration to VariableForce
 ///
 /// This cop was migrated from a 645-line standalone AST visitor to use the shared
@@ -162,12 +174,16 @@ impl variable_force::VariableForceConsumer for UnusedMethodArgument {
                 continue;
             }
 
-            // Check if the variable is used
+            // Check if the variable is referenced — matching RuboCop's
+            // `variable.referenced?` which only checks references, NOT
+            // `captured_by_block`. A parameter that is only reassigned (written
+            // to) inside a block is NOT considered "used" even though the VF
+            // engine marks it captured_by_block due to the cross-scope write.
             let is_used = if ignore_implicit {
                 // Only count explicit references
-                variable.references.iter().any(|r| r.explicit) || variable.captured_by_block
+                variable.references.iter().any(|r| r.explicit)
             } else {
-                variable.used()
+                !variable.references.is_empty()
             };
 
             if !is_used {

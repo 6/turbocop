@@ -131,8 +131,8 @@ impl Cop for RedundantLineContinuation {
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let source_bytes = source.as_bytes();
-        let interpolated_string_continuations =
-            interpolated_string_continuation_offsets(parse_result, source_bytes);
+        let interpolated_literal_continuations =
+            interpolated_literal_continuation_offsets(parse_result, source_bytes);
         let string_like_literal_continuations =
             string_like_literal_continuation_offsets(parse_result, source_bytes);
 
@@ -210,7 +210,7 @@ impl Cop for RedundantLineContinuation {
             // Use code_map to verify the backslash is in a code region
             // (not inside a string, heredoc, or comment)
             if !code_map.is_code(backslash_offset)
-                && !interpolated_string_continuations.contains(&backslash_offset)
+                && !interpolated_literal_continuations.contains(&backslash_offset)
                 && !string_like_literal_continuations.contains(&backslash_offset)
             {
                 continue;
@@ -661,7 +661,7 @@ fn next_line_starts_with_argument(next_trimmed: &[u8]) -> bool {
     )
 }
 
-fn interpolated_string_continuation_offsets(
+fn interpolated_literal_continuation_offsets(
     parse_result: &ruby_prism::ParseResult<'_>,
     source: &[u8],
 ) -> HashSet<usize> {
@@ -711,6 +711,16 @@ impl InterpolatedStringContinuationCollector<'_> {
 }
 
 impl<'pr> Visit<'pr> for InterpolatedStringContinuationCollector<'_> {
+    fn visit_interpolated_regular_expression_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>,
+    ) {
+        let was = self.interpolated_string_depth;
+        self.interpolated_string_depth += 1;
+        ruby_prism::visit_interpolated_regular_expression_node(self, node);
+        self.interpolated_string_depth = was;
+    }
+
     fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
         let was = self.interpolated_string_depth;
         let is_heredoc = node

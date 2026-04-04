@@ -129,3 +129,20 @@ included do
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
     end
 end
+
+-> do
+  limit = -1
+   v = 0
+   ^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+end
+
+->{   1
+ 2
+ ^ Layout/IndentationConsistency: Inconsistent indentation detected.
+}
+
+BEGIN {
+  require 'pathname'
+    load_path = 'lib'
+    ^^^^^^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+}
