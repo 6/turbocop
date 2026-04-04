@@ -177,3 +177,18 @@ module Wrapper
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
   end
 end
+
+def json!
+^ Style/DocumentationMethod: Missing method documentation comment.
+
+album.instance_eval { def name=; raise; end }
+                      ^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
+
+__skip__ = def new_field(**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
+
+__skip__ = def new_input_field(**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
+
+class << @variant; def new_record?; false; end; end
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
