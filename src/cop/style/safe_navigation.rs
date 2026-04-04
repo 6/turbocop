@@ -564,7 +564,6 @@ impl Cop for SafeNavigation {
             in_call_arguments: 0,
             in_block_argument: 0,
             in_block: 0,
-            direct_call_receiver_roots: Vec::new(),
             direct_receiver_block_bodies: Vec::new(),
             in_dynamic_send_args: 0,
             in_double_colon_call_arguments: 0,
@@ -592,7 +591,6 @@ struct SafeNavVisitor<'a> {
     in_call_arguments: usize,
     in_block_argument: usize,
     in_block: usize,
-    direct_call_receiver_roots: Vec<(usize, usize)>,
     direct_receiver_block_bodies: Vec<(usize, usize)>,
     in_dynamic_send_args: usize,
     in_double_colon_call_arguments: usize,
@@ -793,30 +791,6 @@ impl<'a> SafeNavVisitor<'a> {
         NIL_METHODS.contains(&call.name().as_slice())
     }
 
-    fn collect_direct_receiver_ranges(
-        node: &ruby_prism::Node<'_>,
-        ranges: &mut Vec<(usize, usize)>,
-    ) {
-        let loc = node.location();
-        ranges.push((loc.start_offset(), loc.end_offset()));
-
-        if let Some(parentheses) = node.as_parentheses_node() {
-            if let Some(body) = parentheses.body() {
-                if let Some(stmts) = body.as_statements_node() {
-                    if let Some(inner) = SafeNavigation::single_stmt_from_stmts(&stmts) {
-                        Self::collect_direct_receiver_ranges(&inner, ranges);
-                    }
-                }
-            }
-        }
-    }
-
-    fn is_direct_call_receiver(&self, node: &ruby_prism::Node<'_>) -> bool {
-        let loc = node.location();
-        let range = (loc.start_offset(), loc.end_offset());
-        self.direct_call_receiver_roots.contains(&range)
-    }
-
     fn collect_direct_receiver_block_bodies(
         node: &ruby_prism::Node<'_>,
         bodies: &mut Vec<(usize, usize)>,
@@ -897,15 +871,12 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
                 .push(node.location().start_offset());
         }
         if let Some(receiver) = node.receiver() {
-            let receiver_roots_len = self.direct_call_receiver_roots.len();
             let receiver_block_bodies_len = self.direct_receiver_block_bodies.len();
-            Self::collect_direct_receiver_ranges(&receiver, &mut self.direct_call_receiver_roots);
             Self::collect_direct_receiver_block_bodies(
                 &receiver,
                 &mut self.direct_receiver_block_bodies,
             );
             self.visit(&receiver);
-            self.direct_call_receiver_roots.truncate(receiver_roots_len);
             self.direct_receiver_block_bodies
                 .truncate(receiver_block_bodies_len);
         }
@@ -971,8 +942,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // RuboCop skips `&&` patterns when any ancestor send node is "unsafe" (dotless,
         // assignment, or operator method). For example, `scope :bar, ->(user) { user && user.name }`
         // is not flagged because `scope` is a dotless method call.
-        if self.is_direct_call_receiver(&node.as_node())
-            || self.in_nil_safe_call_ancestor > 0
+        if self.in_nil_safe_call_ancestor > 0
             || self.in_unsafe_parent > 0
             || self.in_dynamic_send_args > 0
             || self.in_double_colon_call_arguments > 0
@@ -1039,7 +1009,6 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
             if (self.in_block_argument > 0 && self.in_block == 0)
-                || self.is_direct_call_receiver(&node.as_node())
                 || self.in_nil_safe_call_ancestor > 0
                 || self.in_ternary_operator_parent > 0
             {
@@ -1088,7 +1057,6 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
 
         if (self.in_block_argument > 0 && self.in_block == 0)
-            || self.is_direct_call_receiver(&node.as_node())
             || self.in_nil_safe_call_ancestor > 0
             || self.in_call_arguments > 0
             || self.in_dynamic_send_args > 0
@@ -1127,7 +1095,6 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
 
         if (self.in_block_argument > 0 && self.in_block == 0)
-            || self.is_direct_call_receiver(&node.as_node())
             || self.in_nil_safe_call_ancestor > 0
             || self.in_call_arguments > 0
             || self.in_dynamic_send_args > 0
