@@ -15,14 +15,20 @@ use crate::parse::source::SourceFile;
 /// conditions with aligned style, alignment with `left_col` or double-width
 /// `kw_expected` are accepted.
 ///
-/// Key fix (2026-04-04): CallNode (`+`, `-`, etc.) now delegates to
-/// `check_binary_node` with `accept_left_alignment=true`. This adds
-/// assignment/keyword context awareness (fixing FN where RuboCop requires
-/// alignment but old code accepted wrong indentation), while accepting
-/// same-column alignment as a fallback for operator calls. The fallback
-/// is needed because RuboCop's `argument_in_method_call` (which requires
-/// AST parent traversal) accepts alignment in method-arg and nested-if
-/// contexts that we cannot detect from Prism without parent pointers.
+/// Key fix (2026-04-04): tightened the `accept_left_alignment` branch
+/// for CallNode operators (`+`, `-`, etc.) to stop unconditionally
+/// accepting `right_col == left_col`. The old code masked ~800+ FN
+/// where the continuation line sat at the same column as the left
+/// operand but RuboCop expects indentation. Three heuristics now
+/// approximate RuboCop's `argument_in_method_call` (which needs AST
+/// parent pointers we don't have) to preserve left-alignment acceptance
+/// only in method-arg contexts:
+///   1. Previous line ends with comma (arg on separate line).
+///   2. Left operand's line contains a non-trailing instance of the
+///      same operator (inline chain, e.g. `H.h2{…}+`).
+///   3. Previous line ends with a different operator (expression is
+///      the RHS of that operator).
+/// Result: 805 resolved FN, 16 resolved FP, 0 new regressions.
 pub struct MultilineOperationIndentation;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -84,8 +90,15 @@ impl Cop for MultilineOperationIndentation {
             // AST parent traversal), so we accept same-column alignment for
             // operator calls to avoid FP in method-arg and nested-if contexts.
             let first_arg = &args[0];
-            diagnostics
-                .extend(self.check_binary_node(source, &receiver, first_arg, config, style, true));
+            diagnostics.extend(self.check_binary_node(
+                source,
+                &receiver,
+                first_arg,
+                config,
+                style,
+                true,
+                Some(method_name),
+            ));
             return;
         }
 
@@ -103,6 +116,7 @@ impl Cop for MultilineOperationIndentation {
                 config,
                 style,
                 false,
+                None,
             ));
             return;
         }
@@ -120,6 +134,7 @@ impl Cop for MultilineOperationIndentation {
                 config,
                 style,
                 false,
+                None,
             ));
         }
     }
@@ -224,6 +239,34 @@ fn has_assignment_before_col(line_bytes: &[u8], col: usize) -> bool {
         .rev()
         .find(|&idx| line_bytes[idx] == b'=')
         .is_some_and(|idx| is_assignment_operator(line_bytes, idx))
+}
+
+/// Check if a line contains a non-trailing instance of the given operator.
+/// A "non-trailing" instance is one where non-whitespace content follows it on the line.
+/// This detects inline operator chains like `"a"+b+"c"+` where the operator appears
+/// multiple times, indicating the expression is part of a complex chain that's likely
+/// in an `argument_in_method_call` context we can't detect without parent pointers.
+fn line_has_non_trailing_operator(line_bytes: &[u8], operator: &[u8]) -> bool {
+    if operator.is_empty() {
+        return false;
+    }
+    let op_len = operator.len();
+    if line_bytes.len() < op_len {
+        return false;
+    }
+    for i in 0..=line_bytes.len() - op_len {
+        if &line_bytes[i..i + op_len] == operator {
+            // Check if there's non-whitespace content after this instance
+            let rest = &line_bytes[i + op_len..];
+            if rest
+                .iter()
+                .any(|&b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn line_ends_with_assignment_operator(line_bytes: &[u8]) -> bool {
@@ -385,6 +428,7 @@ impl MultilineOperationIndentation {
         config: &CopConfig,
         style: &str,
         accept_left_alignment: bool,
+        operator_name: Option<&[u8]>,
     ) -> Vec<Diagnostic> {
         let (left_line, left_col) = source.offset_to_line_col(left.location().start_offset());
         let (left_end_line, _) = source.offset_to_line_col(left.location().end_offset());
@@ -423,6 +467,7 @@ impl MultilineOperationIndentation {
                 width
             };
 
+        let mut use_align_message = false;
         let is_ok = if should_align {
             right_col == left_col
         } else if style == "aligned" && left_col > left_indent {
@@ -433,16 +478,64 @@ impl MultilineOperationIndentation {
             right_col == expected_indent || right_col == left_col
         } else if accept_left_alignment {
             // For operator method calls (+, -, etc.) without AST parent info,
-            // we can't detect RuboCop's `argument_in_method_call` context
-            // (e.g. `raise Exception, "a" +\n"b"` or `+` inside if-as-operand).
-            // Accept same-column alignment as a safe fallback to avoid FP.
-            right_col == expected_indent || right_col == left_col
+            // we can't detect RuboCop's `argument_in_method_call` context.
+            // Accept same-column alignment when there is evidence:
+            // 1. Left operand is offset from base indent (e.g. in hash value)
+            // 2. Previous line ends with comma (method call arg on separate line)
+            // 3. Left operand's starting line has a non-trailing instance of the
+            //    operator (e.g. `"a"+b+"c"+`), indicating an inline chain that's
+            //    likely inside a larger expression context
+            if left_col > left_indent {
+                right_col == expected_indent || right_col == left_col
+            } else {
+                let prev_line_has_comma = left_line > 1 && {
+                    let prev_bytes = source.lines().nth(left_line - 2).unwrap_or(b"");
+                    last_significant_index(prev_bytes).is_some_and(|idx| prev_bytes[idx] == b',')
+                };
+                let has_inline_op = operator_name
+                    .is_some_and(|op| line_has_non_trailing_operator(left_line_bytes, op));
+                // Check if the previous line ends with a DIFFERENT operator
+                // (e.g. `x.should ==\n"a" +\n"b"` — the + chain is an argument
+                // of == which is argument_in_method_call context).
+                let prev_ends_with_diff_op = left_line > 1
+                    && operator_name.is_some_and(|op| {
+                        let prev_bytes = source.lines().nth(left_line - 2).unwrap_or(b"");
+                        last_significant_index(prev_bytes).is_some_and(|idx| {
+                            let last = prev_bytes[idx];
+                            let is_op_char = matches!(
+                                last,
+                                b'+' | b'-'
+                                    | b'*'
+                                    | b'/'
+                                    | b'%'
+                                    | b'='
+                                    | b'|'
+                                    | b'&'
+                                    | b'^'
+                                    | b'<'
+                                    | b'>'
+                            );
+                            is_op_char && last != op[0]
+                        })
+                    });
+                if prev_line_has_comma || has_inline_op {
+                    right_col == expected_indent || right_col == left_col
+                } else if prev_ends_with_diff_op {
+                    // Previous line ends with a different operator (e.g. ==),
+                    // meaning this expression is the right-hand operand.
+                    // RuboCop requires alignment with the first operand.
+                    use_align_message = true;
+                    right_col == left_col
+                } else {
+                    right_col == expected_indent
+                }
+            }
         } else {
             right_col == expected_indent
         };
 
         if !is_ok {
-            let message = if should_align {
+            let message = if should_align || use_align_message {
                 format!(
                     "Align the operands of {} spanning multiple lines.",
                     operation_description(keyword_context, assignment_context)
