@@ -193,3 +193,24 @@ records.sort.each do |record|
     audit_comment: "bulk update"
   )
 end
+
+# Hash literal assignment — no unsafe constructs, fits on one line.
+error = {
+^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  key: "value",
+  key2: "value2"
+}
+
+# Or-assignment with hash literal
+configuration ||= {
+^^^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  rbi: "output.rbi"
+}
+
+# Non-convertible block: call has args without parens, so RuboCop
+# only checks the send portion (before do), not the whole block.
+config.wrappers :default, class: :input,
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  hint_class: :field_with_hint do |b|
+  b.use :placeholder
+end
