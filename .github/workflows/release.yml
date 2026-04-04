@@ -186,6 +186,14 @@ jobs:
           if [ "${{ needs.prepare.outputs.prerelease }}" = "true" ]; then
             FLAGS="$FLAGS --prerelease"
           fi
+          # Find the previous tag so --generate-notes diffs against it.
+          # Without --notes-start-tag, GitHub's auto-notes skip prereleases
+          # and may diff against a much older tag.
+          PREV_TAG=$(gh api repos/${{ github.repository }}/releases \
+            --jq '[.[] | select(.tag_name != "v${{ needs.prepare.outputs.tag }}")] | .[0].tag_name // empty')
+          if [ -n "$PREV_TAG" ]; then
+            FLAGS="$FLAGS --notes-start-tag $PREV_TAG"
+          fi
           gh release create "v${{ needs.prepare.outputs.tag }}" nitrocop-*.tar.gz $FLAGS
         env:
           GH_TOKEN: ${{ github.token }}
