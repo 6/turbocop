@@ -146,3 +146,34 @@ protected (def spaced_paren_protected
            ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
   42
 end)
+
+def json!
+^ Style/DocumentationMethod: Missing method documentation comment.
+
+def articles_courses_scope
+^ Style/DocumentationMethod: Missing method documentation comment.
+
+def scope
+^ Style/DocumentationMethod: Missing method documentation comment.
+
+# A doc comment with inline rubocop:disable is treated as a directive, not documentation # rubocop:disable Layout/LineLength
+def method_with_inline_rubocop_disable
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
+  42
+end
+
+# Undocumented methods inside postfix-modifier class body are still offenses
+class PostfixUnlessClass
+  def undocumented_in_unless_class
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
+    42
+  end
+end unless some_condition
+
+# Methods inside private def body that lack docs should still be flagged
+module Wrapper
+  private def enclosing_private_method
+    def obj.undocumented_singleton; end
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
+  end
+end
