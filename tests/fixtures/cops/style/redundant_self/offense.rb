@@ -81,6 +81,16 @@ def scale_marks
   annotation_categories = self.annotation_categories.includes(:annotation_texts)
 end
 
+# lambda param at class body level should not suppress detection inside defs
+class LambdaParamLeak
+  scope :with_token, -> (token) { where(token: token) }
+
+  def to_param
+    self.token
+    ^^^^ Style/RedundantSelf: Redundant `self` detected.
+  end
+end
+
 # modifier-if on a def should not leak locals into enclosing scope
 class ModifierIfDef
   def to_image

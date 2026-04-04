@@ -21,6 +21,13 @@ use crate::parse::source::SourceFile;
 ///   and class/module nesting. Plain setters like `self.value = 1` do not.
 /// - Parameter default values are visited for `self.` checks. `def foo(x = self.bar)`
 ///   flags `self.bar` unless `bar` is also a parameter name.
+/// - Operator methods (`+`, `-`, `<<`, `==`, etc.) called with dot syntax
+///   (`self.+(other)`, `self.<<(item)`) are not flagged, matching RuboCop's
+///   `operator_method?` check.
+/// - Scope boundaries (def, class, module) prevent local variables from leaking
+///   across them. A lambda param `token` at class body level does not suppress
+///   detection of `self.token` inside a method definition. Blocks within a def
+///   can still see the def's locals.
 pub struct RedundantSelf;
 
 /// Methods where self. is always required (Ruby keywords).
@@ -135,6 +142,38 @@ fn is_uppercase_method(name: &[u8]) -> bool {
     name.first().is_some_and(|&b| b.is_ascii_uppercase())
 }
 
+/// Returns true if the method name is a Ruby operator method.
+/// RuboCop does not flag `self.` with operator methods (e.g. `self.+(other)`).
+fn is_operator_method(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"+" | b"-"
+            | b"*"
+            | b"/"
+            | b"%"
+            | b"**"
+            | b"=="
+            | b"==="
+            | b"!="
+            | b"<=>"
+            | b"=~"
+            | b"!~"
+            | b"<"
+            | b">"
+            | b"<="
+            | b">="
+            | b"<<"
+            | b">>"
+            | b"&"
+            | b"|"
+            | b"^"
+            | b"~"
+            | b"!"
+            | b"+@"
+            | b"-@"
+    )
+}
+
 impl Cop for RedundantSelf {
     fn name(&self) -> &'static str {
         "Style/RedundantSelf"
@@ -153,7 +192,7 @@ impl Cop for RedundantSelf {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            local_scopes: vec![HashSet::new()],
+            local_scopes: vec![(HashSet::new(), ScopeKind::Hard)],
             allowed_self_methods: HashSet::new(),
         };
         visitor.visit(&parse_result.node());
@@ -161,12 +200,25 @@ impl Cop for RedundantSelf {
     }
 }
 
+/// Distinguishes hard scope boundaries (def, class, module) from soft/transparent
+/// ones (block, lambda). `is_local_variable` stops searching at hard boundaries,
+/// preventing class-level locals from leaking into method scopes.
+#[derive(Clone, Copy, PartialEq)]
+enum ScopeKind {
+    /// def, class, module, singleton_class, root — variables from outer scopes
+    /// are not visible across this boundary.
+    Hard,
+    /// block, lambda — variables are visible through this boundary.
+    Soft,
+}
+
 struct RedundantSelfVisitor<'a> {
     cop: &'a RedundantSelf,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
     /// Stack of local variable scopes. Each method/block introduces a new scope.
-    local_scopes: Vec<HashSet<Vec<u8>>>,
+    /// The `ScopeKind` determines whether the scope acts as a search boundary.
+    local_scopes: Vec<(HashSet<Vec<u8>>, ScopeKind)>,
     /// Method names where `self.x` is allowed because a prior compound assignment
     /// (`self.x ||=`, `self.x &&=`, `self.x +=`, etc.) appeared earlier in the
     /// current enclosing file/class/module. This matches RuboCop's source-order
@@ -176,13 +228,25 @@ struct RedundantSelfVisitor<'a> {
 
 impl RedundantSelfVisitor<'_> {
     fn add_local(&mut self, name: &[u8]) {
-        if let Some(scope) = self.local_scopes.last_mut() {
+        if let Some((scope, _)) = self.local_scopes.last_mut() {
             scope.insert(name.to_vec());
         }
     }
 
     fn is_local_variable(&self, name: &[u8]) -> bool {
-        for scope in self.local_scopes.iter().rev() {
+        // Search from innermost scope outward. Allow at most one Hard boundary
+        // (the enclosing def/class). A second Hard boundary means we've crossed
+        // a scope wall (e.g., class body → def), so we stop. This prevents
+        // class-level locals (from lambda param merges) from leaking into defs,
+        // while still letting blocks within a def see the def's variables.
+        let mut hard_seen = false;
+        for (scope, kind) in self.local_scopes.iter().rev() {
+            if *kind == ScopeKind::Hard {
+                if hard_seen {
+                    break;
+                }
+                hard_seen = true;
+            }
             if scope.contains(name) {
                 return true;
             }
@@ -249,8 +313,8 @@ impl RedundantSelfVisitor<'_> {
             return;
         }
 
-        let current_scope = self.local_scopes.pop().unwrap();
-        if let Some(parent_scope) = self.local_scopes.last_mut() {
+        let (current_scope, _) = self.local_scopes.pop().unwrap();
+        if let Some((parent_scope, _)) = self.local_scopes.last_mut() {
             parent_scope.extend(current_scope);
         }
     }
@@ -315,7 +379,7 @@ impl<'pr> Visit<'pr> for ConditionalLocalScanner {
 
 impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        self.local_scopes.push(HashSet::new());
+        self.local_scopes.push((HashSet::new(), ScopeKind::Hard));
 
         if let Some(params) = node.parameters() {
             // Collect parameter names into scope first (before visiting defaults).
@@ -363,6 +427,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                         if !is_setter
                             && name_bytes != b"[]"
                             && name_bytes != b"[]="
+                            && !is_operator_method(name_bytes)
                             && !ALLOWED_METHODS.contains(&name_bytes)
                             && !KERNEL_METHODS.contains(&name_bytes)
                             && !is_uppercase_method(name_bytes)
@@ -407,7 +472,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         // Push a new scope for the class body (local variables from the enclosing scope
         // are not visible inside a class body).
-        self.local_scopes.push(HashSet::new());
+        self.local_scopes.push((HashSet::new(), ScopeKind::Hard));
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -415,7 +480,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        self.local_scopes.push(HashSet::new());
+        self.local_scopes.push((HashSet::new(), ScopeKind::Hard));
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -423,7 +488,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        self.local_scopes.push(HashSet::new());
+        self.local_scopes.push((HashSet::new(), ScopeKind::Hard));
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -434,7 +499,8 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         // Block parameters shadow method names — `self.x` is required for
         // disambiguation when a block parameter `x` is in scope.
         // Push a new scope for block params (they are block-local).
-        self.local_scopes.push(HashSet::new());
+        // Soft boundary: variables are visible through blocks from enclosing defs.
+        self.local_scopes.push((HashSet::new(), ScopeKind::Soft));
 
         if let Some(params) = node.parameters() {
             if let Some(block_params) = params.as_block_parameters_node() {
@@ -453,7 +519,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         // Lambda parameters work the same as block parameters for scoping.
-        self.local_scopes.push(HashSet::new());
+        self.local_scopes.push((HashSet::new(), ScopeKind::Soft));
 
         if let Some(params) = node.parameters() {
             if let Some(block_params) = params.as_block_parameters_node() {
