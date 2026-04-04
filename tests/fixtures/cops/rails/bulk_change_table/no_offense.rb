@@ -21,3 +21,20 @@ def change
   add_column :teams, :name, :string, null: false
   remove_column :posts, :owner_name
 end
+
+def change
+  add_reference :users, :team
+  add_column :users, :name, :string, null: false
+end
+
+def change
+  change_table :users do |t|
+    t.belongs_to :team
+    t.string :name, null: false
+  end
+end
+
+def change
+  change_column_default :events, :latitude, 0.0
+  change_column_default :events, :longitude, 0.0
+end

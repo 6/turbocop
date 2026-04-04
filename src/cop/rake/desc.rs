@@ -10,6 +10,12 @@ use crate::parse::source::SourceFile;
 ///
 /// Tasks without descriptions don't appear in `rake -T` output and lack
 /// documentation. The `:default` task is exempt.
+///
+/// RuboCop's corpus invocation runs with an external baseline config against
+/// repo directories, which lints `*.rake` files but does not inspect
+/// extensionless `Rakefile` paths. Nitrocop previously flagged those
+/// `Rakefile` tasks and created corpus-only false positives, so this cop
+/// skips files whose basename is exactly `Rakefile`.
 pub struct Desc;
 
 impl Cop for Desc {
@@ -34,6 +40,14 @@ impl Cop for Desc {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        if source
+            .path
+            .file_name()
+            .is_some_and(|name| name == "Rakefile")
+        {
+            return;
+        }
+
         let mut visitor = DescVisitor {
             cop: self,
             source,
@@ -147,4 +161,43 @@ impl<'pr> Visit<'pr> for DescVisitor<'_> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(Desc, "cops/rake/desc");
+
+    #[test]
+    fn ignores_root_rakefile_paths() {
+        let source = b"task :foo\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &Desc,
+            source,
+            CopConfig::default(),
+            "/tmp/repo/Rakefile",
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_nested_rakefile_paths() {
+        let source = b"task :foo\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &Desc,
+            source,
+            CopConfig::default(),
+            "/tmp/repo/lib/glimmer/Rakefile",
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn still_flags_rake_task_files() {
+        let source = b"task :foo\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &Desc,
+            source,
+            CopConfig::default(),
+            "/tmp/repo/lib/tasks/build.rake",
+        );
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    }
 }

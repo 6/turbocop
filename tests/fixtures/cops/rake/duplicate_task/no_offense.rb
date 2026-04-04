@@ -14,3 +14,15 @@ namespace :ns do
     puts 'ns:foo'
   end
 end
+
+ADAPTERS.each do |adapter|
+  namespace adapter do
+    task :adapter do
+      ENV['ADAPTER'] = adapter
+    end
+  end
+end
+
+task :adapter do
+  ENV['ADAPTER'] = nil
+end

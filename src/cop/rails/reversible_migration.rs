@@ -8,6 +8,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Matches RuboCop's current migration gating and nested traversal.
+///
+/// The main corpus drift came from treating unversioned `ActiveRecord::Migration`
+/// classes as migrations, which RuboCop skips, plus stopping `change_table`
+/// analysis at immediate statements and missing nested receiverful `change(...)`
+/// calls like `time.change(usec: 0)`.
 pub struct ReversibleMigration;
 
 /// Methods that are always irreversible in a `change` method.
@@ -45,6 +51,7 @@ struct IrreversibleFinder {
     offenses: Vec<(usize, String)>,
     inside_reversible: bool,
     inside_up_only: bool,
+    inside_change_table: bool,
 }
 
 impl<'pr> Visit<'pr> for IrreversibleFinder {
@@ -87,9 +94,39 @@ impl<'pr> Visit<'pr> for IrreversibleFinder {
             return;
         }
 
+        // Traverse `change_table` bodies recursively so nested `if`/`rescue`
+        // wrappers still expose `t.change_default` / `t.remove` calls.
+        if name == b"change_table" && node.receiver().is_none() {
+            if let Some(block) = node.block() {
+                if let Some(block_node) = block.as_block_node() {
+                    if let Some(body) = block_node.body() {
+                        let prev = self.inside_change_table;
+                        self.inside_change_table = true;
+                        self.visit(&body);
+                        self.inside_change_table = prev;
+                    }
+                }
+            }
+            return;
+        }
+
         // If inside reversible or up_only, everything is ok
         if self.inside_reversible || self.inside_up_only {
             ruby_prism::visit_call_node(self, node);
+            return;
+        }
+
+        if let Some(message) = change_table_message(node, self.inside_change_table) {
+            self.offenses
+                .push((node.location().start_offset(), message.to_string()));
+            return;
+        }
+
+        if is_receiver_change_without_from_to(node) {
+            self.offenses.push((
+                node.location().start_offset(),
+                "change(without :from and :to) is not reversible.".to_string(),
+            ));
             return;
         }
 
@@ -116,59 +153,8 @@ impl<'pr> Visit<'pr> for IrreversibleFinder {
             }
         }
 
-        // Check change_table block for irreversible calls
-        if name == b"change_table" && node.receiver().is_none() {
-            if let Some(block) = node.block() {
-                if let Some(block_node) = block.as_block_node() {
-                    if let Some(body) = block_node.body() {
-                        self.check_change_table_body(&body);
-                    }
-                }
-            }
-            return;
-        }
-
         // Continue visiting children (e.g., inside blocks like each)
         ruby_prism::visit_call_node(self, node);
-    }
-}
-
-impl IrreversibleFinder {
-    fn check_change_table_body(&mut self, body: &ruby_prism::Node<'_>) {
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
-
-        for stmt in stmts.body().iter() {
-            if let Some(call) = stmt.as_call_node() {
-                let name = call.name().as_slice();
-                // t.change is irreversible
-                if name == b"change" && call.receiver().is_some() {
-                    self.offenses.push((
-                        call.location().start_offset(),
-                        "change_table(with change) is not reversible.".to_string(),
-                    ));
-                }
-                // t.change_default without from/to is irreversible
-                if name == b"change_default"
-                    && call.receiver().is_some()
-                    && !has_from_and_to_args(&call)
-                {
-                    self.offenses.push((
-                        call.location().start_offset(),
-                        "change_table(with change_default) is not reversible.".to_string(),
-                    ));
-                }
-                // t.remove without type (for Rails >= 6.1)
-                if name == b"remove" && call.receiver().is_some() && !has_type_option(&call) {
-                    self.offenses.push((
-                        call.location().start_offset(),
-                        "t.remove (without type) is not reversible.".to_string(),
-                    ));
-                }
-            }
-        }
     }
 }
 
@@ -247,6 +233,16 @@ fn has_from_and_to_args(call: &ruby_prism::CallNode<'_>) -> bool {
     has_keyword_option(call, b"from") && has_keyword_option(call, b"to")
 }
 
+fn has_hash_argument(call: &ruby_prism::CallNode<'_>) -> bool {
+    let Some(args) = call.arguments() else {
+        return false;
+    };
+
+    args.arguments()
+        .iter()
+        .any(|arg| arg.as_keyword_hash_node().is_some() || arg.as_hash_node().is_some())
+}
+
 fn has_type_option(call: &ruby_prism::CallNode<'_>) -> bool {
     has_keyword_option(call, b"type")
 }
@@ -281,6 +277,65 @@ fn has_keyword_option(call: &ruby_prism::CallNode<'_>, key: &[u8]) -> bool {
         }
     }
     false
+}
+
+fn change_table_message(
+    call: &ruby_prism::CallNode<'_>,
+    inside_change_table: bool,
+) -> Option<&'static str> {
+    if !inside_change_table || call.receiver().is_none() {
+        return None;
+    }
+
+    match call.name().as_slice() {
+        b"change" => Some("change_table(with change) is not reversible."),
+        b"change_default" if !has_from_and_to_args(call) => {
+            Some("change_table(with change_default) is not reversible.")
+        }
+        b"remove" if !has_type_option(call) => Some("t.remove (without type) is not reversible."),
+        _ => None,
+    }
+}
+
+fn is_receiver_change_without_from_to(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.name().as_slice() == b"change"
+        && call.receiver().is_some()
+        && has_hash_argument(call)
+        && !has_from_and_to_args(call)
+}
+
+fn is_versioned_migration_superclass(super_text: &[u8]) -> bool {
+    let super_text = super_text.strip_prefix(b"::").unwrap_or(super_text);
+    let Some(inner) = super_text
+        .strip_prefix(b"ActiveRecord::Migration[")
+        .and_then(|rest| rest.strip_suffix(b"]"))
+    else {
+        return false;
+    };
+
+    let mut saw_dot = false;
+    let mut digits_before = 0usize;
+    let mut digits_after = 0usize;
+
+    for byte in inner {
+        if byte.is_ascii_digit() {
+            if saw_dot {
+                digits_after += 1;
+            } else {
+                digits_before += 1;
+            }
+            continue;
+        }
+
+        if *byte == b'.' && !saw_dot {
+            saw_dot = true;
+            continue;
+        }
+
+        return false;
+    }
+
+    saw_dot && digits_before > 0 && digits_after > 0
 }
 
 fn condition_desc(condition: IrreversibleCondition) -> &'static str {
@@ -343,7 +398,7 @@ impl Cop for ReversibleMigration {
         };
         let super_loc = superclass.location();
         let super_text = &source.as_bytes()[super_loc.start_offset()..super_loc.end_offset()];
-        if !super_text.starts_with(b"ActiveRecord::Migration") {
+        if !is_versioned_migration_superclass(super_text) {
             return;
         }
 
@@ -366,6 +421,7 @@ impl Cop for ReversibleMigration {
                             offenses: Vec::new(),
                             inside_reversible: false,
                             inside_up_only: false,
+                            inside_change_table: false,
                         };
                         finder.visit(&def_body);
 

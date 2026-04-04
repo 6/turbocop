@@ -1,33 +1,46 @@
 use crate::cop::shared::method_dispatch_predicates;
-use crate::cop::shared::node_type::{
-    ASSOC_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, HASH_NODE, IF_NODE, KEYWORD_HASH_NODE,
-    STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, UNLESS_NODE,
-};
+use crate::cop::shared::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Mirrors RuboCop's adapter-aware bulk ALTER detection for Rails migrations.
+///
+/// Fixed the corpus-wide FN gap by resolving the adapter from `Database`,
+/// `config/database.yml`, or `DATABASE_URL`, splitting combinable methods by
+/// adapter and Rails version, and skipping singleton migration methods like
+/// `def self.up` that RuboCop does not analyze for this cop.
 pub struct BulkChangeTable;
 
-/// Combinable alter methods (can be done in a single ALTER TABLE).
-const COMBINABLE_ALTER_METHODS: &[&[u8]] = &[
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DatabaseKind {
+    Mysql,
+    PostgreSQL,
+}
+
+/// Combinable alter methods for both MySQL and PostgreSQL.
+const BASE_COMBINABLE_ALTER_METHODS: &[&[u8]] = &[
     b"add_column",
     b"remove_column",
+    b"remove_columns",
     b"add_timestamps",
     b"remove_timestamps",
     b"change_column",
-    b"change_column_default",
-    b"rename_column",
-    b"add_index",
-    b"remove_index",
-    b"add_reference",
-    b"remove_reference",
-    b"add_belongs_to",
-    b"remove_belongs_to",
 ];
 
-/// Combinable transformations inside change_table block.
-const COMBINABLE_TABLE_METHODS: &[&[u8]] = &[
+/// Combinable alter methods only supported by MySQL.
+const MYSQL_COMBINABLE_ALTER_METHODS: &[&[u8]] = &[b"rename_column", b"add_index", b"remove_index"];
+
+/// Combinable alter methods supported by PostgreSQL 5.2+.
+const POSTGRESQL_COMBINABLE_ALTER_METHODS: &[&[u8]] = &[b"change_column_default"];
+
+/// Combinable alter methods supported by PostgreSQL 6.1+.
+const POSTGRESQL_61_COMBINABLE_ALTER_METHODS: &[&[u8]] = &[b"change_column_null"];
+
+/// Combinable transformations inside `change_table` blocks for both MySQL and PostgreSQL.
+const BASE_COMBINABLE_TABLE_METHODS: &[&[u8]] = &[
+    b"primary_key",
+    b"column",
     b"string",
     b"text",
     b"integer",
@@ -43,19 +56,20 @@ const COMBINABLE_TABLE_METHODS: &[&[u8]] = &[
     b"boolean",
     b"json",
     b"virtual",
-    b"column",
     b"remove",
-    b"index",
-    b"remove_index",
     b"timestamps",
-    b"rename",
+    b"remove_timestamps",
     b"change",
-    b"change_default",
-    b"references",
-    b"belongs_to",
-    b"remove_references",
-    b"remove_belongs_to",
 ];
+
+/// Combinable transformations only supported by MySQL.
+const MYSQL_COMBINABLE_TABLE_METHODS: &[&[u8]] = &[b"rename", b"index", b"remove_index"];
+
+/// Combinable transformations supported by PostgreSQL 5.2+.
+const POSTGRESQL_COMBINABLE_TABLE_METHODS: &[&[u8]] = &[b"change_default"];
+
+/// Combinable transformations supported by PostgreSQL 6.1+.
+const POSTGRESQL_61_COMBINABLE_TABLE_METHODS: &[&[u8]] = &[b"change_null"];
 
 /// Extract the table name from the first argument of an alter method call.
 fn extract_table_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
@@ -69,6 +83,126 @@ fn extract_table_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
         return Some(s.unescaped().to_vec());
     }
     None
+}
+
+fn database_kind(config: &CopConfig, source: &SourceFile) -> Option<DatabaseKind> {
+    match config.get_str("Database", "") {
+        "mysql" => Some(DatabaseKind::Mysql),
+        "postgresql" => Some(DatabaseKind::PostgreSQL),
+        "" => database_kind_from_yaml(source).or_else(database_kind_from_env),
+        _ => None,
+    }
+}
+
+fn database_kind_from_yaml(source: &SourceFile) -> Option<DatabaseKind> {
+    let file_parent = source.path.parent()?;
+
+    for ancestor in file_parent.ancestors() {
+        let database_yml = ancestor.join("config/database.yml");
+        if !database_yml.is_file() {
+            continue;
+        }
+
+        return parse_database_yml(&database_yml);
+    }
+
+    None
+}
+
+fn parse_database_yml(path: &std::path::Path) -> Option<DatabaseKind> {
+    let contents = std::fs::read_to_string(path).ok()?;
+    let yaml: serde_yml::Value = serde_yml::from_str(&contents).ok()?;
+    let development = yaml
+        .as_mapping()?
+        .get(serde_yml::Value::String("development".to_string()))?
+        .as_mapping()?;
+
+    adapter_from_mapping(development).and_then(database_kind_from_adapter)
+}
+
+fn adapter_from_mapping(mapping: &serde_yml::Mapping) -> Option<&str> {
+    if let Some(adapter) = mapping
+        .get(serde_yml::Value::String("adapter".to_string()))
+        .and_then(|value| value.as_str())
+    {
+        return Some(adapter);
+    }
+
+    mapping
+        .values()
+        .filter_map(|value| value.as_mapping())
+        .find_map(|nested| {
+            nested
+                .get(serde_yml::Value::String("adapter".to_string()))
+                .and_then(|value| value.as_str())
+        })
+}
+
+fn database_kind_from_adapter(adapter: &str) -> Option<DatabaseKind> {
+    match adapter {
+        "mysql2" | "trilogy" => Some(DatabaseKind::Mysql),
+        "postgresql" | "postgis" => Some(DatabaseKind::PostgreSQL),
+        _ => None,
+    }
+}
+
+fn database_kind_from_env() -> Option<DatabaseKind> {
+    let database_url = std::env::var("DATABASE_URL").ok()?;
+
+    if database_url.starts_with("mysql2://") || database_url.starts_with("trilogy://") {
+        return Some(DatabaseKind::Mysql);
+    }
+
+    if database_url.starts_with("postgres://") || database_url.starts_with("postgresql://") {
+        return Some(DatabaseKind::PostgreSQL);
+    }
+
+    None
+}
+
+fn supports_bulk_alter(database: DatabaseKind, config: &CopConfig) -> bool {
+    match database {
+        DatabaseKind::Mysql => true,
+        DatabaseKind::PostgreSQL => config
+            .target_rails_version()
+            .is_some_and(|version| version >= 5.2),
+    }
+}
+
+fn is_postgresql_61_or_later(config: &CopConfig) -> bool {
+    config
+        .target_rails_version()
+        .is_some_and(|version| version >= 6.1)
+}
+
+fn is_combinable_alter_method(name: &[u8], database: DatabaseKind, config: &CopConfig) -> bool {
+    if BASE_COMBINABLE_ALTER_METHODS.contains(&name) {
+        return true;
+    }
+
+    match database {
+        DatabaseKind::Mysql => MYSQL_COMBINABLE_ALTER_METHODS.contains(&name),
+        DatabaseKind::PostgreSQL => {
+            POSTGRESQL_COMBINABLE_ALTER_METHODS.contains(&name)
+                || (is_postgresql_61_or_later(config)
+                    && POSTGRESQL_61_COMBINABLE_ALTER_METHODS.contains(&name))
+        }
+    }
+}
+
+fn is_combinable_table_method(name: &[u8], database: DatabaseKind, config: &CopConfig) -> bool {
+    if BASE_COMBINABLE_TABLE_METHODS.contains(&name) {
+        return true;
+    }
+
+    match database {
+        DatabaseKind::Mysql => MYSQL_COMBINABLE_TABLE_METHODS.contains(&name),
+        DatabaseKind::PostgreSQL => {
+            POSTGRESQL_COMBINABLE_TABLE_METHODS.contains(&name)
+                || (is_postgresql_61_or_later(config)
+                    && POSTGRESQL_61_COMBINABLE_TABLE_METHODS.contains(&name))
+        }
+    }
 }
 
 /// Check if a change_table call has `bulk: true` or `bulk: false`.
@@ -104,50 +238,53 @@ fn has_bulk_option(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
-/// Count combinable transformations inside a change_table block body.
-/// Returns (count, has_conditional) -- conditional blocks like `if` make it not combinable.
-fn count_combinable_in_block(block_body: &ruby_prism::Node<'_>) -> (usize, bool) {
-    let stmts = match block_body.as_statements_node() {
-        Some(s) => s,
-        None => return (0, false),
-    };
+fn count_remove_arguments(call: &ruby_prism::CallNode<'_>) -> usize {
+    call.arguments()
+        .map(|args| {
+            args.arguments()
+                .iter()
+                .filter(|arg| arg.as_hash_node().is_none() && arg.as_keyword_hash_node().is_none())
+                .count()
+        })
+        .unwrap_or(0)
+}
 
-    let mut count = 0;
-    let mut has_conditional = false;
-    for stmt in stmts.body().iter() {
-        // Check for conditionals that would make combining unsafe
-        if stmt.as_if_node().is_some() || stmt.as_unless_node().is_some() {
-            has_conditional = true;
-        }
-        // Check for nested blocks (reversible, etc.)
-        if let Some(call) = stmt.as_call_node() {
-            if call.block().is_some() && call.name().as_slice() != b"remove" {
-                has_conditional = true;
-            }
-        }
-
-        if let Some(call) = stmt.as_call_node() {
-            let name = call.name().as_slice();
-            if call.receiver().is_some() && COMBINABLE_TABLE_METHODS.contains(&name) {
-                // For `t.remove`, count multi-column remove as multiple
-                if name == b"remove" {
-                    if let Some(args) = call.arguments() {
-                        let arg_count = args
-                            .arguments()
-                            .iter()
-                            .filter(|a| a.as_keyword_hash_node().is_none())
-                            .count();
-                        if arg_count > 1 {
-                            count += arg_count;
-                            continue;
-                        }
-                    }
-                }
-                count += 1;
-            }
-        }
+fn count_combinable_table_call(
+    call: &ruby_prism::CallNode<'_>,
+    database: DatabaseKind,
+    config: &CopConfig,
+) -> usize {
+    let name = call.name().as_slice();
+    if call.receiver().is_none() || !is_combinable_table_method(name, database, config) {
+        return 0;
     }
-    (count, has_conditional)
+
+    if name == b"remove" {
+        return count_remove_arguments(call);
+    }
+
+    1
+}
+
+/// Count combinable top-level transformations inside a change_table block body.
+fn count_combinable_in_block(
+    block_body: &ruby_prism::Node<'_>,
+    database: DatabaseKind,
+    config: &CopConfig,
+) -> usize {
+    if let Some(stmts) = block_body.as_statements_node() {
+        return stmts
+            .body()
+            .iter()
+            .filter_map(|stmt| stmt.as_call_node())
+            .map(|call| count_combinable_table_call(&call, database, config))
+            .sum();
+    }
+
+    block_body
+        .as_call_node()
+        .map(|call| count_combinable_table_call(&call, database, config))
+        .unwrap_or(0)
 }
 
 impl Cop for BulkChangeTable {
@@ -164,19 +301,7 @@ impl Cop for BulkChangeTable {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            ASSOC_NODE,
-            BLOCK_NODE,
-            CALL_NODE,
-            DEF_NODE,
-            HASH_NODE,
-            IF_NODE,
-            KEYWORD_HASH_NODE,
-            STATEMENTS_NODE,
-            STRING_NODE,
-            SYMBOL_NODE,
-            UNLESS_NODE,
-        ]
+        &[DEF_NODE]
     }
 
     fn check_node(
@@ -188,15 +313,10 @@ impl Cop for BulkChangeTable {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // RuboCop only fires when the database adapter is known to support bulk ALTER.
-        // The `Database` config key can be "mysql" or "postgresql". When not set, rubocop
-        // tries to parse config/database.yml (which often fails due to ERB), then
-        // falls back to DATABASE_URL. If neither works, the cop is silently skipped.
-        // We replicate this: only fire when Database is explicitly configured.
-        let database = config.get_str("Database", "");
-        if database != "mysql" && database != "postgresql" {
-            return;
-        }
+        let database = match database_kind(config, source) {
+            Some(database) if supports_bulk_alter(database, config) => database,
+            _ => return,
+        };
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -205,6 +325,10 @@ impl Cop for BulkChangeTable {
 
         let def_name = def_node.name().as_slice();
         if def_name != b"change" && def_name != b"up" && def_name != b"down" {
+            return;
+        }
+
+        if def_node.receiver().is_some() {
             return;
         }
 
@@ -228,9 +352,9 @@ impl Cop for BulkChangeTable {
                     if let Some(block) = call.block() {
                         if let Some(block_node) = block.as_block_node() {
                             if let Some(block_body) = block_node.body() {
-                                let (count, has_conditional) =
-                                    count_combinable_in_block(&block_body);
-                                if count >= 2 && !has_conditional {
+                                let count =
+                                    count_combinable_in_block(&block_body, database, config);
+                                if count > 1 {
                                     let loc = call.location();
                                     let (line, column) =
                                         source.offset_to_line_col(loc.start_offset());
@@ -249,54 +373,52 @@ impl Cop for BulkChangeTable {
             }
         }
 
-        // Check for multiple combinable alter methods on the same table
-        // Group consecutive alter method calls by table name
-        let mut table_runs: Vec<(Vec<u8>, Vec<usize>)> = Vec::new();
+        // Check for consecutive combinable alter methods targeting the same table.
+        let mut current_table: Option<Vec<u8>> = None;
+        let mut current_offset = 0;
+        let mut current_count = 0usize;
+
+        let mut flush_run = |table: &mut Option<Vec<u8>>, offset: usize, count: &mut usize| {
+            if *count > 1 {
+                if let Some(table_name) = table.as_deref() {
+                    let table_str = std::str::from_utf8(table_name).unwrap_or("table");
+                    let (line, column) = source.offset_to_line_col(offset);
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "You can use `change_table :{table_str}, bulk: true` to combine alter queries."
+                        ),
+                    ));
+                }
+            }
+            *table = None;
+            *count = 0;
+        };
 
         for stmt in stmts.body().iter() {
             if let Some(call) = stmt.as_call_node() {
                 let name = call.name().as_slice();
-                if COMBINABLE_ALTER_METHODS.contains(&name) && call.receiver().is_none() {
+                if call.receiver().is_none() && is_combinable_alter_method(name, database, config) {
                     if let Some(table) = extract_table_name(&call) {
-                        // Try to append to existing run for this table
-                        let appended = if let Some(last) = table_runs.last_mut() {
-                            if last.0 == table {
-                                last.1.push(call.location().start_offset());
-                                true
-                            } else {
-                                false
-                            }
+                        if current_table.as_deref() == Some(table.as_slice()) {
+                            current_count += 1;
                         } else {
-                            false
-                        };
-                        if !appended {
-                            table_runs.push((table, vec![call.location().start_offset()]));
+                            flush_run(&mut current_table, current_offset, &mut current_count);
+                            current_offset = call.location().start_offset();
+                            current_table = Some(table);
+                            current_count = 1;
                         }
                         continue;
                     }
                 }
-                // Non-combinable method or different table breaks the run
-                table_runs.push((Vec::new(), Vec::new()));
-            } else {
-                table_runs.push((Vec::new(), Vec::new()));
             }
+
+            flush_run(&mut current_table, current_offset, &mut current_count);
         }
 
-        // Report offenses for tables with multiple alter methods
-        for (table, offsets) in &table_runs {
-            if offsets.len() >= 2 && !table.is_empty() {
-                let table_str = std::str::from_utf8(table).unwrap_or("table");
-                let (line, column) = source.offset_to_line_col(offsets[0]);
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!(
-                        "You can use `change_table :{table_str}, bulk: true` to combine alter queries."
-                    ),
-                ));
-            }
-        }
+        flush_run(&mut current_table, current_offset, &mut current_count);
     }
 }
 
@@ -305,6 +427,7 @@ mod tests {
     use super::*;
     use crate::cop::CopConfig;
     use std::collections::HashMap;
+    use std::fs;
 
     fn mysql_config() -> CopConfig {
         let mut options = HashMap::new();
@@ -316,6 +439,43 @@ mod tests {
             options,
             ..CopConfig::default()
         }
+    }
+
+    fn rails_config(version: f64) -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(version)),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    fn run_in_temp_project(
+        source: &[u8],
+        config: CopConfig,
+        database_yml: Option<&str>,
+    ) -> Vec<Diagnostic> {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let config_dir = tempdir.path().join("config");
+        let migrate_dir = tempdir.path().join("db/migrate");
+
+        fs::create_dir_all(&config_dir).expect("config dir");
+        fs::create_dir_all(&migrate_dir).expect("migrate dir");
+
+        if let Some(database_yml) = database_yml {
+            fs::write(config_dir.join("database.yml"), database_yml).expect("database.yml");
+        }
+
+        let path = migrate_dir.join("001_test.rb");
+        crate::testutil::run_cop_full_internal(
+            &BulkChangeTable,
+            source,
+            config,
+            path.to_str().unwrap(),
+        )
     }
 
     #[test]
@@ -337,17 +497,67 @@ mod tests {
     }
 
     #[test]
-    fn skipped_when_database_not_set() {
-        let source = b"# nitrocop-filename: db/migrate/001_test.rb\ndef change\n  add_column :users, :name, :string\n  add_column :users, :age, :integer\nend\n";
-        let diagnostics = crate::testutil::run_cop_full_internal(
-            &BulkChangeTable,
+    fn detects_mysql_from_database_yml() {
+        let source = b"def change\n  add_column :users, :twitter_token, :string\n  add_column :users, :twitter_secret, :string\nend\n";
+        let diagnostics = run_in_temp_project(
             source,
             CopConfig::default(),
-            "db/migrate/001_test.rb",
+            Some("development:\n  adapter: mysql2\n"),
+        );
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "mysql2 database.yml should enable the cop"
+        );
+    }
+
+    #[test]
+    fn detects_nested_postgresql_from_database_yml() {
+        let source = b"def up\n  change_column_default :events, :latitude, 0.0\n  change_column_default :events, :longitude, 0.0\nend\n";
+        let diagnostics = run_in_temp_project(
+            source,
+            rails_config(5.2),
+            Some("development:\n  primary:\n    adapter: postgresql\n"),
+        );
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "postgresql database.yml should enable PostgreSQL-specific methods on Rails 5.2+"
+        );
+    }
+
+    #[test]
+    fn skips_postgresql_before_rails_5_2() {
+        let source = b"def up\n  change_column_default :events, :latitude, 0.0\n  change_column_default :events, :longitude, 0.0\nend\n";
+        let diagnostics = run_in_temp_project(
+            source,
+            rails_config(5.1),
+            Some("development:\n  adapter: postgresql\n"),
         );
         assert!(
             diagnostics.is_empty(),
-            "Should not fire when Database is not set"
+            "PostgreSQL bulk alter should stay disabled before Rails 5.2"
+        );
+    }
+
+    #[test]
+    fn skips_singleton_migration_methods() {
+        let source = b"class AddFieldsToUsers < ActiveRecord::Migration\n  def self.up\n    add_column :users, :name, :string\n    add_column :users, :email, :string\n  end\nend\n";
+        let diagnostics =
+            crate::testutil::run_cop_full_with_config(&BulkChangeTable, source, mysql_config());
+        assert!(
+            diagnostics.is_empty(),
+            "def self.up should stay ignored to match RuboCop"
+        );
+    }
+
+    #[test]
+    fn skipped_when_database_cannot_be_resolved() {
+        let source = b"# nitrocop-filename: db/migrate/001_test.rb\ndef change\n  add_column :users, :name, :string\n  add_column :users, :age, :integer\nend\n";
+        let diagnostics = run_in_temp_project(source, CopConfig::default(), None);
+        assert!(
+            diagnostics.is_empty(),
+            "Should not fire when the adapter cannot be resolved"
         );
     }
 }

@@ -67,3 +67,37 @@ when '28'
 else
   @msg = :unknown
 end
+
+# ternary with local variable assignment
+opts[:encoding].nil? ? encoding = nil : encoding = opts[:encoding].to_s
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+
+# ternary with setter method assignment
+pi.config.pwn_ai_debug ? pi.config.pwn_ai_debug = false : pi.config.pwn_ai_debug = true
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+
+# if/elsif/else with same variable assignment
+if RUBY_ENGINE == 'ruby'
+^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  platform = 'ruby'
+elsif RUBY_ENGINE == 'jruby'
+  platform = 'java'
+else
+  platform = 'other'
+end
+
+# unless/else with same variable assignment
+unless condition
+^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  x = 1
+else
+  x = 2
+end
+
+# if/else where both branches assign the same variable (complex condition)
+if content_type =~ /json/i && (response_body.is_a?(Hash) || response_body.is_a?(Array))
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  response_body = JSON.generate(response_body)
+else
+  response_body = response_body.to_s
+end

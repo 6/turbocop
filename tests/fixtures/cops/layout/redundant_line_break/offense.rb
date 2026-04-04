@@ -144,3 +144,52 @@ public_class_method def self.get_uris(opts = {})
 rescue StandardError => e
   raise e
 end
+
+# String concatenation with backslash — the decoded values contain no \n,
+# so safe_to_split? is true and these ARE offenses.
+def internal_error
+  Trip::InternalError.new(
+  ^^^^^^^^^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+    "The tracer encountered an internal error and crashed. " \
+    "See #cause for details."
+  )
+end
+
+def pause_error
+  Trip::PauseError.new(
+  ^^^^^^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+    "The pause_when Proc encountered an error and crashed. " \
+    "See #cause for details."
+  )
+end
+
+# Short string concatenation assignments — value has no \n, fits on one line.
+msg = 'short string that ' \
+^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+      'fits on one line'
+
+error = "Node type must be any of #{types}, " \
+^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+        "passed #{node_type}"
+
+label = "#{name}::" \
+^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+        "#{child_name}"
+
+# Calls inside block bodies — individually checkable since the block
+# boundary stops the walk-up in RuboCop's on_send.
+existing_indexes_for(table_name).any? do |existing_index_column_names|
+  leftmost_match?(
+  ^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+    haystack: existing_index_column_names,
+    needle: indexed_column_names
+  )
+end
+
+records.sort.each do |record|
+  record.update(
+  ^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+    status: :processed,
+    audit_comment: "bulk update"
+  )
+end
