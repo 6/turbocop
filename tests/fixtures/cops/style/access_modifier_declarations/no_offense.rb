@@ -101,3 +101,16 @@ class WrappedByRescue
     nil
   end
 end
+
+class WrappedByCase
+  case adapter
+  when "mysql2"
+    unless vector_load_supported?
+      around_save :tag_ids_around_save
+
+      private def tag_ids_around_save
+        yield
+      end
+    end
+  end
+end
