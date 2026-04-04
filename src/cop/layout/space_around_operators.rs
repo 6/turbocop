@@ -549,7 +549,7 @@ fn check_text_scanner_extra_space(
         }
         if p < bytes.len() && bytes[p] == b'#' {
             multi_after = false;
-        } else if is_plain_assignment {
+        } else if is_plain_assignment || op_bytes != b"=" {
             if let Some(rhs_start) = util::first_non_space_on_line(bytes, op_end) {
                 if is_aligned_rhs_standalone(source, rhs_start) {
                     multi_after = false;
