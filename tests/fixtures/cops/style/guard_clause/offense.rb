@@ -342,3 +342,18 @@ def test_comment_only_else_at_end
     # just a comment
   end
 end
+
+# Short guard rewrite with comment-only else in a case branch remains an offense
+def test_short_comment_only_else_in_case
+  case :x
+  when nil
+    if condition
+    ^^ Style/GuardClause: Use a guard clause (`raise "error" if condition`) instead of wrapping the code inside a conditional expression.
+      raise "error"
+    else
+      # comment
+    end
+  when true
+    work
+  end
+end

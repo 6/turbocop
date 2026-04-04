@@ -142,3 +142,17 @@ def test(obj)
     work
   end
 end
+
+# Overlong guard rewrite with comment-only else in a case branch is accepted
+def test(context)
+  case :x
+  when nil
+    if context.method_context.method_type
+      raise "Method context must have `forwarded_arg_type` if `...` node appears in it"
+    else
+      # Skips type checking forwarded argument because the method type is not given
+    end
+  when true
+    work
+  end
+end
