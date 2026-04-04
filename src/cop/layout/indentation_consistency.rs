@@ -1,8 +1,8 @@
 use crate::cop::shared::access_modifier_predicates;
 use crate::cop::shared::node_type::{
     BEGIN_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, DEF_NODE, ELSE_NODE, FOR_NODE,
-    IF_NODE, IN_NODE, MODULE_NODE, PROGRAM_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE,
-    UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
+    IF_NODE, IN_NODE, LAMBDA_NODE, MODULE_NODE, PRE_EXECUTION_NODE, PROGRAM_NODE,
+    SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
 };
 use crate::cop::shared::util::begins_its_line;
 use crate::cop::{Cop, CopConfig};
@@ -60,6 +60,28 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 ///    expression node starting at column 2+, while other statements on
 ///    the line start at column 0. RuboCop's `begins_its_line?` check
 ///    skips such nodes. Added the same check to avoid false positives.
+///
+/// ## Corpus investigation (2026-04-04, round 2)
+///
+/// Fixed 10 FN and 1 FP:
+/// 10. Lambda bodies (`-> { }` / `-> do end`, Prism `LambdaNode`) were
+///     never checked for indentation consistency. Added a handler using
+///     `opening_loc` for the keyword line and the lambda's own start
+///     (`->`) for the parent column, matching how blocks use the call
+///     node's start.
+/// 11. `BEGIN { }` blocks (Prism `PreExecutionNode`) were never checked.
+///     Added a handler using `opening_loc` for the keyword line.
+/// 12. `check_statements_consistency` (used for if/when/while/etc. bodies)
+///     did not filter bare access modifiers. RuboCop's `on_begin` handler
+///     uniformly filters them from all body types. A `private` inside an
+///     `if` body at a different column than sibling methods was flagged as
+///     inconsistent, but RuboCop ignores it. Fixed by adding the same
+///     access modifier filtering to `check_statements_consistency`.
+///
+/// Remaining 2 FN (poolparty chef_client.rb lines 16-17): Prism treats
+/// `return expr||= (multi\nline\nexpression)` as a single statement due
+/// to the unmatched `(`, while the parser gem (used by RuboCop) sees
+/// separate statements. This is a parser difference, not a detection bug.
 pub struct IndentationConsistency;
 
 /// Check if a node is a bare access modifier call
@@ -210,8 +232,17 @@ impl IndentationConsistency {
         }
 
         let (kw_line, _) = source.offset_to_line_col(keyword_offset);
+        let (_, parent_column) = self.line_col_for(source, keyword_offset);
 
-        self.check_flat(source, &children, kw_line, None)
+        // RuboCop's on_begin handler uniformly filters bare access modifiers
+        // from all body types (if, when, while, etc.), not just class/module.
+        let base_column = self.base_column_for_normal_style(source, &children, Some(parent_column));
+        let filtered_children: Vec<_> = children
+            .into_iter()
+            .filter(|child| !is_bare_access_modifier(child))
+            .collect();
+
+        self.check_flat(source, &filtered_children, kw_line, base_column)
     }
 
     /// Normal style: all children must have the same indentation.
@@ -344,7 +375,9 @@ impl Cop for IndentationConsistency {
             FOR_NODE,
             IF_NODE,
             IN_NODE,
+            LAMBDA_NODE,
             MODULE_NODE,
+            PRE_EXECUTION_NODE,
             PROGRAM_NODE,
             SINGLETON_CLASS_NODE,
             STATEMENTS_NODE,
@@ -431,6 +464,28 @@ impl Cop for IndentationConsistency {
                     indented,
                 ));
             }
+            return;
+        }
+
+        // Lambda bodies (-> { } / -> do end)
+        if let Some(lambda_node) = node.as_lambda_node() {
+            diagnostics.extend(self.check_body_consistency_with_parent(
+                source,
+                lambda_node.opening_loc().start_offset(),
+                lambda_node.location().start_offset(),
+                lambda_node.body(),
+                indented,
+            ));
+            return;
+        }
+
+        // BEGIN { } blocks (PreExecutionNode)
+        if let Some(pre_exec_node) = node.as_pre_execution_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                pre_exec_node.opening_loc().start_offset(),
+                pre_exec_node.statements(),
+            ));
             return;
         }
 
