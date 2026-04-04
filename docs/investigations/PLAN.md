@@ -448,7 +448,7 @@ Assert equal over a node corpus. On mismatch, dump cop name, pattern string, nod
 
 ### Corpus scale (phased)
 
-* **Phase 2**: ~100 repos (current 14 public + 14 private → expand to 100)
+* **Phase 2**: ~100 repos (expand to ~100)
 * **Phase 3**: ~300 repos (only if Phase 2 still producing novel diffs)
 * **Phase 4**: 500-1000 repos (optional, marketing value)
 

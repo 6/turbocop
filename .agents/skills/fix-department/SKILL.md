@@ -401,7 +401,6 @@ Do not leave retained progress only in a worktree branch.
   `/fix-department` done while generated `README.md` / `docs/corpus.md` still
   show the target below 100%, or while Linux CI parity is still unconfirmed.
 - Use local corpus files under `vendor/corpus/` when available, but fetch them selectively rather than assuming a full local corpus checkout.
-- Do not copy identifiers from private repositories into source, fixtures, or commit messages.
 
 ## Arguments
 

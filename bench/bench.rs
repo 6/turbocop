@@ -43,14 +43,6 @@ struct Args {
     /// Output markdown file path (relative to project root)
     #[arg(long)]
     output: Option<PathBuf>,
-
-    /// Run only on private/local repos from bench/private_repos.json
-    #[arg(long)]
-    private: bool,
-
-    /// Run on both public and private repos
-    #[arg(long)]
-    all_repos: bool,
 }
 
 // --- Repo config ---
@@ -134,26 +126,11 @@ static REPOS: &[BenchRepo] = &[
     },
 ];
 
-// --- Unified repo reference ---
-
-#[derive(Clone, Copy, PartialEq)]
-enum RepoSource {
-    /// Public repo cloned into bench/repos/
-    Public,
-    /// Private/local repo from bench/private_repos.json
-    Private,
-}
+// --- Repo reference ---
 
 struct RepoRef {
     name: String,
     dir: PathBuf,
-    source: RepoSource,
-}
-
-#[derive(serde::Deserialize)]
-struct PrivateRepoEntry {
-    name: String,
-    path: String,
 }
 
 // --- Helpers ---
@@ -289,130 +266,14 @@ fn format_speedup(slow: f64, fast: f64) -> String {
     format!("{:.1}x", slow / fast)
 }
 
-// --- Private repo support ---
-
-fn private_repos_config_path() -> PathBuf {
-    bench_dir().join("private_repos.json")
-}
-
-fn private_results_dir() -> PathBuf {
-    bench_dir().join("private_results")
-}
-
-fn results_dir_for(source: RepoSource) -> PathBuf {
-    match source {
-        RepoSource::Public => results_dir(),
-        RepoSource::Private => private_results_dir(),
-    }
-}
-
-fn load_private_repos() -> Vec<RepoRef> {
-    let config_path = private_repos_config_path();
-    if !config_path.exists() {
-        return Vec::new();
-    }
-
-    let content = match fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Warning: could not read {}: {e}", config_path.display());
-            return Vec::new();
-        }
-    };
-
-    let entries: Vec<PrivateRepoEntry> = match serde_json::from_str(&content) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("Warning: could not parse {}: {e}", config_path.display());
-            return Vec::new();
-        }
-    };
-
-    let home = std::env::var("HOME").unwrap_or_default();
-    let mut repos = Vec::new();
-
-    for entry in entries {
-        let expanded = if entry.path.starts_with("~/") {
-            format!("{}{}", home, &entry.path[1..])
-        } else {
-            entry.path.clone()
-        };
-        let dir = PathBuf::from(&expanded);
-
-        if !dir.exists() {
-            eprintln!(
-                "Warning: private repo '{}' path does not exist: {}",
-                entry.name,
-                dir.display()
-            );
-            continue;
-        }
-
-        if !dir.join("Gemfile").exists() {
-            eprintln!(
-                "Warning: private repo '{}' has no Gemfile: {}",
-                entry.name,
-                dir.display()
-            );
-            continue;
-        }
-
-        repos.push(RepoRef {
-            name: entry.name,
-            dir,
-            source: RepoSource::Private,
-        });
-    }
-
-    repos
-}
-
-fn resolve_public_repos() -> Vec<RepoRef> {
+fn resolve_repos() -> Vec<RepoRef> {
     REPOS
         .iter()
         .map(|r| RepoRef {
             name: r.name.to_string(),
             dir: repos_dir().join(r.name),
-            source: RepoSource::Public,
         })
         .collect()
-}
-
-fn resolve_repos(args: &Args) -> Vec<RepoRef> {
-    if args.private && args.all_repos {
-        eprintln!("Error: --private and --all-repos are mutually exclusive.");
-        std::process::exit(1);
-    }
-
-    if args.private {
-        let repos = load_private_repos();
-        if repos.is_empty() {
-            eprintln!(
-                "No private repos configured. Create {} with repo entries.",
-                private_repos_config_path().display()
-            );
-            eprintln!("Format: [{{\"name\": \"my-app\", \"path\": \"~/path/to/my-app\"}}]");
-            std::process::exit(1);
-        }
-        repos
-    } else if args.all_repos {
-        let mut repos = resolve_public_repos();
-        let private = load_private_repos();
-        let public_names: HashSet<String> = repos.iter().map(|r| r.name.clone()).collect();
-        for p in private {
-            if public_names.contains(&p.name) {
-                eprintln!(
-                    "Warning: private repo '{}' has same name as public repo, skipping.",
-                    p.name
-                );
-                continue;
-            }
-            repos.push(p);
-        }
-        repos
-    } else {
-        resolve_public_repos()
-    }
 }
 
 // --- Setup ---
@@ -602,11 +463,10 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
     }
 
     let mut bench_results = HashMap::new();
+    let results_path = results_dir();
+    fs::create_dir_all(&results_path).unwrap();
 
     for repo in repos {
-        let results_path = results_dir_for(repo.source);
-        fs::create_dir_all(&results_path).unwrap();
-
         if !repo.dir.exists() {
             eprintln!("Repo {} not found at {}.", repo.name, repo.dir.display());
             continue;
@@ -1228,11 +1088,10 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
     eprintln!("{} cops covered by nitrocop", covered.len());
 
     let mut conform_results = HashMap::new();
+    let results_path = results_dir();
+    fs::create_dir_all(&results_path).unwrap();
 
     for repo in repos {
-        let results_path = results_dir_for(repo.source);
-        fs::create_dir_all(&results_path).unwrap();
-
         if !repo.dir.exists() {
             eprintln!("Repo {} not found at {}.", repo.name, repo.dir.display());
             continue;
@@ -2184,8 +2043,8 @@ fn generate_report(
 
 fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
     let mut results = HashMap::new();
+    let results_path = results_dir();
     for repo in repos {
-        let results_path = results_dir_for(repo.source);
         let json_file = results_path.join(format!("{}-bench.json", repo.name));
         if !json_file.exists() {
             continue;
@@ -2234,12 +2093,8 @@ fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
     results
 }
 
-fn load_cached_conform(is_private: bool) -> HashMap<String, ConformResult> {
-    let json_path = project_root().join(if is_private {
-        "bench/private_conform.json"
-    } else {
-        "bench/conform.json"
-    });
+fn load_cached_conform() -> HashMap<String, ConformResult> {
+    let json_path = project_root().join("bench/conform.json");
     if !json_path.exists() {
         return HashMap::new();
     }
@@ -2254,50 +2109,27 @@ fn load_cached_conform(is_private: bool) -> HashMap<String, ConformResult> {
 
 fn main() {
     let args = Args::parse();
-    let repos = resolve_repos(&args);
+    let repos = resolve_repos();
 
-    let is_private_run = args.private;
-    let output_path = args.output.clone().unwrap_or_else(|| {
-        if is_private_run {
-            project_root().join("bench/private_results.md")
-        } else {
-            project_root().join("bench/results.md")
-        }
-    });
+    let output_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| project_root().join("bench/results.md"));
 
-    /// Choose the right JSON output path based on repo source.
-    fn json_output_path(base_name: &str, is_private: bool) -> PathBuf {
-        let prefix = if is_private { "private_" } else { "" };
-        project_root().join(format!("bench/{prefix}{base_name}"))
+    fn json_output_path(base_name: &str) -> PathBuf {
+        project_root().join(format!("bench/{base_name}"))
     }
 
     match args.mode.as_str() {
         "setup" => {
-            if is_private_run {
-                eprintln!("Validating private repo paths...");
-                for repo in &repos {
-                    if repo.dir.exists() {
-                        let rb_count = count_rb_files(&repo.dir);
-                        eprintln!(
-                            "  OK: {} ({} .rb files) at {}",
-                            repo.name,
-                            rb_count,
-                            repo.dir.display()
-                        );
-                    } else {
-                        eprintln!("  MISSING: {} at {}", repo.name, repo.dir.display());
-                    }
-                }
-            } else {
-                setup_repos();
-            }
+            setup_repos();
         }
         "bench" => {
             let start = Instant::now();
             build_nitrocop();
             init_lockfiles(&repos);
             let bench = run_bench(&args, &repos);
-            let conform = load_cached_conform(is_private_run);
+            let conform = load_cached_conform();
             let elapsed = start.elapsed().as_secs_f64();
             let md = generate_report(&bench, &conform, &args, &repos, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
@@ -2309,7 +2141,7 @@ fn main() {
             init_lockfiles(&repos);
             let conform = run_conform(&repos);
             // Write structured JSON
-            let json_path = json_output_path("conform.json", is_private_run);
+            let json_path = json_output_path("conform.json");
             let json = serde_json::to_string_pretty(&conform).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {}", json_path.display());
@@ -2326,21 +2158,19 @@ fn main() {
         }
         "report" => {
             let bench = load_cached_bench(&repos);
-            let conform = load_cached_conform(is_private_run);
+            let conform = load_cached_conform();
             let md = generate_report(&bench, &conform, &args, &repos, None);
             fs::write(&output_path, &md).unwrap();
             eprintln!("\nWrote {}", output_path.display());
         }
         "all" => {
             let start = Instant::now();
-            if !is_private_run {
-                setup_repos();
-            }
+            setup_repos();
             build_nitrocop();
             init_lockfiles(&repos);
             let bench = run_bench(&args, &repos);
             let conform = run_conform(&repos);
-            let json_path = json_output_path("conform.json", is_private_run);
+            let json_path = json_output_path("conform.json");
             let json = serde_json::to_string_pretty(&conform).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {}", json_path.display());
@@ -2354,7 +2184,7 @@ fn main() {
             build_nitrocop();
             init_lockfiles(&repos);
             let ac_results = run_autocorrect_conform(&repos);
-            let json_path = json_output_path("autocorrect_conform.json", is_private_run);
+            let json_path = json_output_path("autocorrect_conform.json");
             let json = serde_json::to_string_pretty(&ac_results).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!(
@@ -2369,17 +2199,13 @@ fn main() {
             init_lockfiles(&repos);
             let av_results = run_autocorrect_validate(&repos);
             // Write structured JSON
-            let json_path = json_output_path("autocorrect_validate.json", is_private_run);
+            let json_path = json_output_path("autocorrect_validate.json");
             let json = serde_json::to_string_pretty(&av_results).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {}", json_path.display());
             // Write markdown report
             let md = generate_autocorrect_validate_report(&av_results);
-            let md_path = if is_private_run {
-                project_root().join("bench/private_autocorrect_validate.md")
-            } else {
-                project_root().join("bench/autocorrect_validate.md")
-            };
+            let md_path = project_root().join("bench/autocorrect_validate.md");
             fs::write(&md_path, &md).unwrap();
             eprintln!(
                 "Wrote {} ({:.0}s)",
