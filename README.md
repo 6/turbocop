@@ -111,7 +111,7 @@ Compared with RuboCop on [**5,560 open-source repos**](docs/corpus.md) (586k Rub
 |------------|-----:|----------------------:|---------:|------------------------:|
 | Rake | 5 | 3 | 2 | 60.0% |
 
-"Exact match" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus.
+**Default** = tested with the default RuboCop config. **All variants** = tested with every supported `EnforcedStyle` value for each cop.
 See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
 <!-- corpus-cops:end -->
 
