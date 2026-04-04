@@ -15,6 +15,10 @@ use std::path::{Component, Path};
 ///    to multiline `%Q` StringNodes. RuboCop's parser represents multiline
 ///    strings as `dstr` where `str_type?` is false, skipping that check.
 ///    Added a `!source.contains(b'\n')` guard to match.
+/// 3. Multiline static `%Q` strings that contain escaped interpolation text
+///    like `\#{name}` were falsely flagged. RuboCop's source regex
+///    `/#\{.+\}/` still matches the escaped text, so accept that narrow case
+///    when the source also contains double quotes.
 pub struct RedundantPercentQ;
 
 impl Cop for RedundantPercentQ {
@@ -129,7 +133,9 @@ fn acceptable_static_percent_capital_q(source: &[u8]) -> bool {
     // RuboCop only applies double_quotes_required? for `str` (single-line) nodes.
     // The Ruby parser represents multiline strings as `dstr` where str_type? is false.
     // Prism always uses StringNode for static strings, so check for newlines to match.
-    source.contains(&b'"') && !source.contains(&b'\n') && util::double_quotes_required(source)
+    source.contains(&b'"')
+        && (contains_interpolation_pattern(source)
+            || (!source.contains(&b'\n') && util::double_quotes_required(source)))
 }
 
 fn acceptable_dynamic_percent_capital_q(source: &[u8]) -> bool {
