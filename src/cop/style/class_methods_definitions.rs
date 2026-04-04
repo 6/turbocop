@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{DEF_NODE, SELF_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
+use crate::cop::shared::util::line_at;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -25,6 +26,15 @@ use crate::parse::source::SourceFile;
 /// forms like `private :foo`. Multi-arg forms like `private :foo, :bar` are NOT
 /// recognized, so those methods remain public. Our code previously matched any
 /// number of args. Fix: only match when there is exactly one symbol argument.
+///
+/// ## Fix (2026-04-04): FP from RuboCop autocorrect crash on trailing same-line code
+///
+/// RuboCop 1.84.2 reports no offense when a direct `def` ends on the same line
+/// as the enclosing `class << self` and outer code continues after that `end`
+/// on the same line (for example `end end; X = 1`). The cop crashes while
+/// registering autocorrections, so the corpus records no offense. Fix: skip
+/// that exact rewrite-crash shape while still flagging the nearby general case
+/// where the singleton class closes at the end of the line.
 pub struct ClassMethodsDefinitions;
 
 impl Cop for ClassMethodsDefinitions {
@@ -57,11 +67,11 @@ impl Cop for ClassMethodsDefinitions {
                 let expr = sclass.expression();
                 if expr.as_self_node().is_some() {
                     // Check if body has defs and ALL are public
-                    if let Some(body) = sclass.body() {
+                    if sclass.body().is_some() {
                         let sclass_line = source
                             .offset_to_line_col(sclass.location().start_offset())
                             .0;
-                        if all_defs_public(source, &body, sclass_line) {
+                        if all_defs_public(source, &sclass, sclass_line) {
                             let loc = sclass.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(self.diagnostic(
@@ -85,7 +95,15 @@ impl Cop for ClassMethodsDefinitions {
 ///
 /// Also returns false (skip) if any plain `def` starts on the same line as
 /// the `class << self` keyword — RuboCop does not flag compact single-line forms.
-fn all_defs_public(source: &SourceFile, body: &ruby_prism::Node<'_>, sclass_line: usize) -> bool {
+fn all_defs_public(
+    source: &SourceFile,
+    sclass: &ruby_prism::SingletonClassNode<'_>,
+    sclass_line: usize,
+) -> bool {
+    let Some(body) = sclass.body() else {
+        return false;
+    };
+
     let stmts = match body.as_statements_node() {
         Some(s) => s,
         None => {
@@ -98,14 +116,15 @@ fn all_defs_public(source: &SourceFile, body: &ruby_prism::Node<'_>, sclass_line
                 let def_line = source
                     .offset_to_line_col(def_node.location().start_offset())
                     .0;
-                return def_line != sclass_line;
+                return def_line != sclass_line
+                    && !rubocop_autocorrect_crash_shape(source, sclass, &def_node);
             }
             return false;
         }
     };
 
     let stmts_vec: Vec<_> = stmts.body().iter().collect();
-    let mut found_direct_plain_def = false;
+    let mut direct_plain_defs = Vec::new();
 
     for (idx, stmt) in stmts_vec.iter().enumerate() {
         let Some(def_node) = stmt.as_def_node() else {
@@ -124,16 +143,21 @@ fn all_defs_public(source: &SourceFile, body: &ruby_prism::Node<'_>, sclass_line
             return false; // Single-line form — RuboCop does not flag
         }
 
-        found_direct_plain_def = true;
-
-        if direct_def_visibility(&stmts_vec, idx, def_node.name().as_slice())
-            != MethodVisibility::Public
-        {
-            return false;
-        }
+        direct_plain_defs.push((idx, def_node));
     }
 
-    found_direct_plain_def
+    let Some((_, last_direct_plain_def)) = direct_plain_defs.last() else {
+        return false;
+    };
+
+    if rubocop_autocorrect_crash_shape(source, sclass, last_direct_plain_def) {
+        return false;
+    }
+
+    direct_plain_defs.into_iter().all(|(idx, def_node)| {
+        direct_def_visibility(&stmts_vec, idx, def_node.name().as_slice())
+            == MethodVisibility::Public
+    })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -212,6 +236,44 @@ fn visibility_name(name: &[u8]) -> Option<MethodVisibility> {
         b"private" => Some(MethodVisibility::Private),
         _ => None,
     }
+}
+
+fn rubocop_autocorrect_crash_shape(
+    source: &SourceFile,
+    sclass: &ruby_prism::SingletonClassNode<'_>,
+    last_direct_plain_def: &ruby_prism::DefNode<'_>,
+) -> bool {
+    let sclass_end = sclass.location().end_offset();
+    let def_end = last_direct_plain_def.location().end_offset();
+
+    let sclass_end_line = source.offset_to_line_col(sclass_end).0;
+    let def_end_line = source.offset_to_line_col(def_end).0;
+    if sclass_end_line != def_end_line {
+        return false;
+    }
+
+    has_same_line_code_after_offset(source, sclass_end)
+}
+
+fn has_same_line_code_after_offset(source: &SourceFile, offset: usize) -> bool {
+    let (line_number, column) = source.offset_to_line_col(offset);
+    let Some(line) = line_at(source, line_number) else {
+        return false;
+    };
+
+    let mut idx = column.min(line.len());
+    while idx < line.len() && line[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+
+    while idx < line.len() && line[idx] == b';' {
+        idx += 1;
+        while idx < line.len() && line[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+    }
+
+    idx < line.len() && line[idx] != b'#'
 }
 
 #[cfg(test)]
