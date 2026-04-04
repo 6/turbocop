@@ -277,6 +277,47 @@ fn parenthesize_modifier_form(source: &SourceFile, kw_loc: &ruby_prism::Location
     false
 }
 
+fn collection_context_prefix(prefix: &str) -> bool {
+    prefix.ends_with('(')
+        || prefix.ends_with('[')
+        || prefix.ends_with(',')
+        || prefix.ends_with(':')
+        || prefix.ends_with("=>")
+}
+
+fn single_line_direct_collection_context(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    kw_loc: &ruby_prism::Location<'_>,
+) -> bool {
+    let (kw_line, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
+    let node_end_off = node
+        .location()
+        .end_offset()
+        .saturating_sub(1)
+        .max(node.location().start_offset());
+    let (node_end_line, _) = source.offset_to_line_col(node_end_off);
+    if kw_line != node_end_line {
+        return false;
+    }
+
+    let kw_line_start = kw_loc.start_offset().saturating_sub(kw_col);
+    let before_kw = &source.as_bytes()[kw_line_start..kw_loc.start_offset()];
+    let before_kw_trimmed = String::from_utf8_lossy(before_kw).trim_end().to_string();
+    if collection_context_prefix(&before_kw_trimmed) {
+        return true;
+    }
+
+    if before_kw_trimmed.is_empty() && kw_line >= 2 {
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let prev_line = lines[kw_line - 2];
+        let prev_trimmed = String::from_utf8_lossy(prev_line).trim_end().to_string();
+        return collection_context_prefix(&prev_trimmed);
+    }
+
+    false
+}
+
 fn code_after_end_is_disallowed(after_end: &[u8]) -> bool {
     let trimmed = after_end
         .iter()
@@ -741,6 +782,10 @@ impl Cop for IfUnlessModifier {
             .max(body_node.location().start_offset());
         let (body_end_line, _) = source.offset_to_line_col(body_end_off);
         if body_start_line != body_end_line {
+            return;
+        }
+
+        if single_line_direct_collection_context(source, node, &kw_loc) {
             return;
         }
 
