@@ -224,3 +224,18 @@ regex = if allow_spaces_in_card?(value)
         else
           /[^\d]/
         end
+
+# if/else with __LINE__ — same source text but different actual line numbers
+if condition
+  __LINE__ + 1
+else
+  __LINE__ + 1
+end
+
+# if/else where response is send in if (method call) but lvar in else (assigned)
+if condition
+  response.body
+else
+  response = make_response
+  response.body
+end
