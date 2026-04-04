@@ -9,6 +9,7 @@ use ruby_prism::Visit;
 use crate::cache::ResultCache;
 use crate::cli::Args;
 use crate::config::{CopFilterSet, ResolvedConfig};
+use crate::cop::lint::redundant_cop_disable_directive::allow_redundant_disable_flagging_for_known_gap_cop;
 use crate::cop::registry::CopRegistry;
 use crate::cop::tiers::{SkipSummary, TierMap};
 use crate::cop::walker::BatchedCopWalker;
@@ -593,6 +594,14 @@ const REDUNDANT_DISABLE_SKIP_COPS: &[&str] = &[
     "Style/Semicolon",                    // FN=60
 ];
 
+fn redundant_disable_target_ruby_version(config: &CopConfig) -> f64 {
+    config
+        .options
+        .get("TargetRubyVersion")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(2.7)
+}
+
 /// Determine if a disable directive should be flagged as redundant.
 ///
 /// Returns `Some(suffix)` if the directive IS redundant (should be reported),
@@ -611,6 +620,7 @@ const REDUNDANT_DISABLE_SKIP_COPS: &[&str] = &[
 fn is_directive_redundant(
     cop_name: &str,
     registry: &CopRegistry,
+    base_configs: &[CopConfig],
     cop_filters: &CopFilterSet,
     path: &Path,
     has_only_filter: bool,
@@ -657,6 +667,7 @@ fn is_directive_redundant(
         }
         // Cop is enabled and not explicitly excluded.
         if all_cops_ran && cop_filters.is_cop_match(idx, path) {
+            let target_ruby_version = redundant_disable_target_ruby_version(&base_configs[idx]);
             // All cops ran AND this specific cop matched the file (Include
             // patterns matched), so we have reliable usage data — if the
             // directive is still unused, the cop genuinely didn't fire and
@@ -665,7 +676,9 @@ fn is_directive_redundant(
             // Skip cops with known detection gaps vs RuboCop, where
             // nitrocop may miss an offense that the directive legitimately
             // suppresses.
-            if !REDUNDANT_DISABLE_SKIP_COPS.contains(&cop_name) {
+            if !REDUNDANT_DISABLE_SKIP_COPS.contains(&cop_name)
+                || allow_redundant_disable_flagging_for_known_gap_cop(cop_name, target_ruby_version)
+            {
                 return Some("");
             }
         }
@@ -703,6 +716,10 @@ fn is_directive_redundant(
                 if all_cops_ran
                     && cop_filters.is_cop_match(new_idx, path)
                     && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str())
+                    && !allow_redundant_disable_flagging_for_known_gap_cop(
+                        new_name,
+                        redundant_disable_target_ruby_version(&base_configs[new_idx]),
+                    )
                 {
                     return None;
                 }
@@ -1329,6 +1346,7 @@ fn lint_source_once(
                 let suffix = match is_directive_redundant(
                     &directive.cop_name,
                     registry,
+                    active_base_configs,
                     active_filters,
                     &source.path,
                     !args.only.is_empty(),

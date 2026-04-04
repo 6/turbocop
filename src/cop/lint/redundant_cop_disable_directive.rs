@@ -92,7 +92,27 @@ use crate::diagnostic::Severity;
 /// **Renamed cop defensive check**: Added fallback skip-list check for
 /// renamed cops in non-`all_cops_ran` mode (e.g. `--except` runs) to
 /// prevent FPs when the new-name cop has detection gaps.
+///
+/// ## Corpus investigation (2026-04-04)
+///
+/// Cached corpus results showed that `Lint/UnusedMethodArgument` is now at
+/// 100.0% match, so keeping it on the conservative redundant-disable denylist
+/// masked clearly-unused directives for abstract `raise NotImplementedError`
+/// stubs. `Security/YAMLLoad` remains special: RuboCop only runs it for
+/// TargetRubyVersion <= 3.0, so Ruby 3.1+ can safely flag the directive as
+/// redundant even though nitrocop keeps the cop as a compatibility stub.
 pub struct RedundantCopDisableDirective;
+
+pub(crate) fn allow_redundant_disable_flagging_for_known_gap_cop(
+    cop_name: &str,
+    target_ruby_version: f64,
+) -> bool {
+    match cop_name {
+        "Lint/UnusedMethodArgument" => true,
+        "Security/YAMLLoad" => target_ruby_version >= 3.1,
+        _ => false,
+    }
+}
 
 impl Cop for RedundantCopDisableDirective {
     fn name(&self) -> &'static str {
@@ -126,6 +146,34 @@ mod tests {
             RedundantCopDisableDirective.default_severity(),
             Severity::Warning
         );
+    }
+
+    #[test]
+    fn unused_method_argument_is_no_longer_forced_to_skip() {
+        assert!(allow_redundant_disable_flagging_for_known_gap_cop(
+            "Lint/UnusedMethodArgument",
+            2.7
+        ));
+    }
+
+    #[test]
+    fn line_length_stays_skiplisted() {
+        assert!(!allow_redundant_disable_flagging_for_known_gap_cop(
+            "Layout/LineLength",
+            2.7
+        ));
+    }
+
+    #[test]
+    fn yaml_load_only_allows_flagging_on_ruby_3_1_and_newer() {
+        assert!(!allow_redundant_disable_flagging_for_known_gap_cop(
+            "Security/YAMLLoad",
+            3.0
+        ));
+        assert!(allow_redundant_disable_flagging_for_known_gap_cop(
+            "Security/YAMLLoad",
+            3.1
+        ));
     }
 
     // Full-pipeline tests for this cop live in tests/integration.rs because
