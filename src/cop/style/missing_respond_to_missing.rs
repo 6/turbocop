@@ -9,6 +9,10 @@ use ruby_prism::Visit;
 /// - defs inside wrappers such as `class << self`, conditionals, `Class.new`,
 ///   `class_eval`, and `instance_eval` still resolve against the same enclosing
 ///   search root RuboCop uses.
+/// - single-statement reopened `class`/`module` bodies now share a logical
+///   scope alias keyed by constant path and outer wrapper, so a later reopening
+///   with `respond_to_missing?` satisfies the earlier body the same way
+///   RuboCop's parser artifact does.
 /// - program-root `method_missing` with an explicit positional missing-method
 ///   parameter is now reported. RuboCop flags those corpus examples, and a
 ///   top-level `respond_to_missing?` does not satisfy them.
@@ -18,10 +22,6 @@ use ruby_prism::Visit;
 /// because RuboCop is unstable on those shapes in isolation. That keeps the
 /// program-scope fix limited to the confirmed corpus shape without reopening
 /// the `dynamic_proxies.rb` regression.
-///
-/// Known limitation: the remaining corpus FP comes from RuboCop's parser
-/// artifact when reopened classes share `respond_to_missing?` across separate
-/// class bodies; Prism preserves those class bodies as separate scopes.
 pub struct MissingRespondToMissing;
 
 impl Cop for MissingRespondToMissing {
@@ -73,15 +73,57 @@ impl AncestorKind {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ScopeContext {
+    kind: AncestorKind,
+    start_offset: usize,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum ScopeIdentity {
+    Offset(usize),
+    Reopened {
+        name: String,
+        context: Option<ScopeContext>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ScopeKey {
+    kind: AncestorKind,
+    identity: ScopeIdentity,
+}
+
+impl ScopeKey {
+    fn unique(kind: AncestorKind, start_offset: usize) -> Self {
+        Self {
+            kind,
+            identity: ScopeIdentity::Offset(start_offset),
+        }
+    }
+
+    fn reopened(kind: AncestorKind, name: String, context: Option<ScopeContext>) -> Self {
+        Self {
+            kind,
+            identity: ScopeIdentity::Reopened { name, context },
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct AncestorFrame {
     kind: AncestorKind,
     start_offset: usize,
     has_multiple_body_statements: bool,
+    reopened_scope_key: Option<ScopeKey>,
 }
 
 impl AncestorFrame {
-    fn from_node(node: ruby_prism::Node<'_>) -> Self {
+    fn from_node(
+        source: &SourceFile,
+        ancestors: &[AncestorFrame],
+        node: ruby_prism::Node<'_>,
+    ) -> Self {
         let kind = if node.as_program_node().is_some() {
             AncestorKind::Program
         } else if node.as_class_node().is_some() {
@@ -115,11 +157,28 @@ impl AncestorFrame {
             _ => false,
         };
 
+        let reopened_scope_key = match kind {
+            AncestorKind::Class => node.as_class_node().and_then(|class_node| {
+                extract_constant_name(source, &class_node.constant_path())
+                    .map(|name| ScopeKey::reopened(kind, name, nearest_scope_context(ancestors)))
+            }),
+            AncestorKind::Module => node.as_module_node().and_then(|module_node| {
+                extract_constant_name(source, &module_node.constant_path())
+                    .map(|name| ScopeKey::reopened(kind, name, nearest_scope_context(ancestors)))
+            }),
+            _ => None,
+        };
+
         Self {
             kind,
             start_offset: node.location().start_offset(),
             has_multiple_body_statements,
+            reopened_scope_key,
         }
+    }
+
+    fn unique_scope_key(&self) -> ScopeKey {
+        ScopeKey::unique(self.kind, self.start_offset)
     }
 }
 
@@ -164,18 +223,28 @@ fn has_only_leading_comments_and_whitespace(source: &SourceFile, start_offset: u
         })
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ScopeKey {
-    kind: AncestorKind,
-    start_offset: usize,
+fn nearest_scope_context(ancestors: &[AncestorFrame]) -> Option<ScopeContext> {
+    ancestors
+        .iter()
+        .rev()
+        .find(|ancestor| !matches!(ancestor.kind, AncestorKind::Program))
+        .map(|ancestor| ScopeContext {
+            kind: ancestor.kind,
+            start_offset: ancestor.start_offset,
+        })
 }
 
-impl ScopeKey {
-    fn from_frame(frame: AncestorFrame) -> Self {
-        Self {
-            kind: frame.kind,
-            start_offset: frame.start_offset,
-        }
+fn extract_constant_name(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<String> {
+    let source = source.as_bytes();
+
+    if let Some(cr) = node.as_constant_read_node() {
+        Some(String::from_utf8_lossy(cr.name().as_slice()).to_string())
+    } else if let Some(cp) = node.as_constant_path_node() {
+        let loc = cp.location();
+        let text = std::str::from_utf8(&source[loc.start_offset()..loc.end_offset()]).ok()?;
+        Some(text.strip_prefix("::").unwrap_or(text).to_string())
+    } else {
+        None
     }
 }
 
@@ -212,7 +281,7 @@ impl MethodMissingVisitor<'_> {
         let mut nearest_other: Option<ScopeKey> = None;
 
         loop {
-            let frame = *self.ancestors.get(index)?;
+            let frame = self.ancestors.get(index)?;
 
             match frame.kind {
                 AncestorKind::Program => {
@@ -221,9 +290,9 @@ impl MethodMissingVisitor<'_> {
                     // defs inside blocks like Class.new/instance_eval). If no block
                     // was encountered, use the program itself as the root (top-level
                     // method_missing).
-                    return nearest_other.or(Some(ScopeKey::from_frame(frame)));
+                    return nearest_other.or_else(|| Some(frame.unique_scope_key()));
                 }
-                AncestorKind::SingletonClass => return Some(ScopeKey::from_frame(frame)),
+                AncestorKind::SingletonClass => return Some(frame.unique_scope_key()),
                 AncestorKind::Class | AncestorKind::Module | AncestorKind::Def => {
                     let has_outer_boundary = self.ancestors[..index]
                         .iter()
@@ -231,13 +300,21 @@ impl MethodMissingVisitor<'_> {
                         .any(|ancestor| ancestor.kind.is_boundary());
 
                     if saw_wrapper || frame.has_multiple_body_statements || !has_outer_boundary {
-                        return Some(ScopeKey::from_frame(frame));
+                        if matches!(frame.kind, AncestorKind::Class | AncestorKind::Module)
+                            && !frame.has_multiple_body_statements
+                        {
+                            if let Some(scope_key) = frame.reopened_scope_key.clone() {
+                                return Some(scope_key);
+                            }
+                        }
+
+                        return Some(frame.unique_scope_key());
                     }
                 }
                 AncestorKind::Other => {
                     saw_wrapper = true;
                     if nearest_other.is_none() {
-                        nearest_other = Some(ScopeKey::from_frame(frame));
+                        nearest_other = Some(frame.unique_scope_key());
                     }
                 }
             }
@@ -251,8 +328,13 @@ impl MethodMissingVisitor<'_> {
             .iter()
             .take(self.ancestors.len().saturating_sub(1))
             .filter(|ancestor| !matches!(ancestor.kind, AncestorKind::Program))
-            .copied()
-            .map(ScopeKey::from_frame)
+            .flat_map(|ancestor| {
+                let mut scopes = vec![ancestor.unique_scope_key()];
+                if let Some(reopened_scope_key) = ancestor.reopened_scope_key.clone() {
+                    scopes.push(reopened_scope_key);
+                }
+                scopes
+            })
             .collect()
     }
 
@@ -287,7 +369,7 @@ impl MethodMissingVisitor<'_> {
             .iter()
             .filter(|record| record.role == MethodRole::MethodMissing)
         {
-            let root = match method_missing.root {
+            let root = match method_missing.root.clone() {
                 Some(root) => root,
                 None => continue,
             };
@@ -334,7 +416,8 @@ impl<'pr> Visit<'pr> for MethodMissingVisitor<'_> {
         let keep = node.as_statements_node().is_none();
         self.entered_nodes.push(keep);
         if keep {
-            self.ancestors.push(AncestorFrame::from_node(node));
+            self.ancestors
+                .push(AncestorFrame::from_node(self.source, &self.ancestors, node));
         }
     }
 
