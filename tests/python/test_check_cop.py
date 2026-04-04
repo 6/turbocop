@@ -530,3 +530,60 @@ def test_sample_equal_to_relevant_returns_all():
     }
     result = check_cop.relevant_repos_for_cop("Style/Foo", data, sample=10)
     assert result == {"repo-a", "repo-b"}
+
+
+# ── --style flag tests ──
+
+
+def test_generate_style_override_config_creates_valid_yaml():
+    """generate_style_override_config creates a YAML file with correct structure."""
+    import os
+    path = check_cop.generate_style_override_config(
+        "Style/TrailingCommaInHashLiteral",
+        "EnforcedStyleForMultiline",
+        "comma",
+    )
+    try:
+        content = Path(path).read_text()
+        assert "inherit_from:" in content
+        assert "Style/TrailingCommaInHashLiteral:" in content
+        assert "EnforcedStyleForMultiline: comma" in content
+    finally:
+        os.unlink(path)
+
+
+def test_generate_style_override_config_different_cops():
+    """Each call produces a file specific to the cop and param."""
+    import os
+    path1 = check_cop.generate_style_override_config("Layout/DotPosition", "EnforcedStyle", "trailing")
+    path2 = check_cop.generate_style_override_config("Style/AndOr", "EnforcedStyle", "always")
+    try:
+        c1 = Path(path1).read_text()
+        c2 = Path(path2).read_text()
+        assert "Layout/DotPosition:" in c1
+        assert "EnforcedStyle: trailing" in c1
+        assert "Style/AndOr:" in c2
+        assert "EnforcedStyle: always" in c2
+    finally:
+        os.unlink(path1)
+        os.unlink(path2)
+
+
+def test_style_config_override_threads_to_run_one_repo():
+    """_STYLE_CONFIG_OVERRIDE is passed through to _run_corpus_nitrocop."""
+    original = check_cop._run_corpus_nitrocop
+    calls = []
+
+    def fake_run(repo_dir, *, cop=None, binary=None, timeout=120, cwd=None, config_override=None):
+        calls.append(config_override)
+        return {"offenses": [], "count": 0, "error": None}
+
+    check_cop._run_corpus_nitrocop = fake_run
+    old_override = check_cop._STYLE_CONFIG_OVERRIDE
+    try:
+        check_cop._STYLE_CONFIG_OVERRIDE = "/tmp/test_override.yml"
+        check_cop._run_one_repo(("Style/Foo", "/tmp/fake_repo"))
+        assert calls == ["/tmp/test_override.yml"]
+    finally:
+        check_cop._run_corpus_nitrocop = original
+        check_cop._STYLE_CONFIG_OVERRIDE = old_override

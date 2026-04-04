@@ -707,6 +707,22 @@ def spot_check_examples(cop_name: str, data: dict) -> tuple[int, int, int, int, 
     return fp_remain, fp_resolved, fn_remain, fn_resolved, fp_unchecked, fn_unchecked
 
 
+def generate_style_override_config(cop_name: str, param: str, value: str) -> str:
+    """Generate a temporary config file that overrides a single style parameter.
+
+    Returns the path to the temp file. The file inherits from the baseline
+    config and overrides only the specified cop's parameter.
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yml", prefix="nitrocop_style_", delete=False,
+    ) as f:
+        f.write(f"inherit_from: {BASELINE_CONFIG}\n\n")
+        f.write(f"{cop_name}:\n")
+        f.write(f"  {param}: {value}\n")
+        return f.name
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Check a cop against the corpus for aggregate count regressions")
@@ -757,14 +773,9 @@ def main():
             print("ERROR: --style must be PARAM=VALUE (e.g., EnforcedStyle=comma)", file=sys.stderr)
             sys.exit(1)
         style_param, style_value = args.style.split("=", 1)
-        import tempfile
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yml", prefix="nitrocop_style_", delete=False,
-        ) as f:
-            f.write(f"inherit_from: {BASELINE_CONFIG}\n\n")
-            f.write(f"{args.cop}:\n")
-            f.write(f"  {style_param}: {style_value}\n")
-            style_config_override = f.name
+        style_config_override = generate_style_override_config(
+            args.cop, style_param, style_value,
+        )
         print(f"Style override: {style_param}={style_value} (config: {style_config_override})",
               file=sys.stderr)
 
