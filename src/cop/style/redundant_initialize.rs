@@ -49,6 +49,20 @@ use crate::parse::source::SourceFile;
 /// `def initialize; end if false # dummy`) by returning false when non-whitespace
 /// precedes `#` on the same line, and not scanning subsequent lines when there is
 /// code after `end` on the same line.
+///
+/// FP fix (2026-04): `super &:should_retry?` (BlockArgumentNode wrapping a
+/// non-parameter expression) was incorrectly treated as "just forwarding" and
+/// the method flagged as redundant. RuboCop's `same_args?` compares
+/// `block_pass` children as AST nodes, not symbols, so they never match
+/// parameter names — even `super(&block)` with a matching `&block` param is
+/// not flagged by RuboCop. Fixed by treating ANY block on SuperNode (including
+/// BlockArgumentNode) as non-redundant, removing the prior exemption.
+///
+/// FP fix (2026-04): Files with Windows `\r\n` line endings caused
+/// `has_comment_after_end` to treat `\r` as non-whitespace "code" on the same
+/// line as `end`, making the function return false immediately instead of
+/// scanning subsequent lines for comments. Fixed by treating `\r` as
+/// whitespace in both the same-line and subsequent-line checks.
 pub struct RedundantInitialize;
 
 impl Cop for RedundantInitialize {
@@ -152,12 +166,13 @@ impl Cop for RedundantInitialize {
             }
         }
         if let Some(sup) = body_nodes[0].as_super_node() {
-            if let Some(block) = sup.block() {
-                // BlockArgumentNode (&block) is just forwarding, not adding behavior.
-                // But a BlockNode (do...end / { }) adds behavior.
-                if block.as_block_argument_node().is_none() {
-                    return;
-                }
+            if sup.block().is_some() {
+                // Any block on super (BlockNode, BlockArgumentNode) makes
+                // the method non-redundant. RuboCop's `same_args?` compares
+                // block_pass children as AST nodes (not symbols), so they
+                // never match parameter names — even `super(&block)` with a
+                // matching `&block` param is not flagged.
+                return;
             }
         }
 
@@ -263,7 +278,7 @@ fn has_comment_after_end(source_bytes: &[u8], def_end_offset: usize) -> bool {
         if remaining[pos] == b'#' && !saw_non_whitespace {
             return true;
         }
-        if remaining[pos] != b' ' && remaining[pos] != b'\t' {
+        if remaining[pos] != b' ' && remaining[pos] != b'\t' && remaining[pos] != b'\r' {
             saw_non_whitespace = true;
         }
         pos += 1;
@@ -292,8 +307,10 @@ fn has_comment_after_end(source_bytes: &[u8], def_end_offset: usize) -> bool {
         if pos < remaining.len() {
             pos += 1; // skip newline
         }
-        // Check if this line is blank (only whitespace)
-        let trimmed_start = line.iter().position(|&b| b != b' ' && b != b'\t');
+        // Check if this line is blank (only whitespace; \r for Windows line endings)
+        let trimmed_start = line
+            .iter()
+            .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
         match trimmed_start {
             None => continue, // blank line
             Some(idx) => {
@@ -470,6 +487,24 @@ fn super_args_match_params(
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RedundantInitialize, "cops/style/redundant_initialize");
+
+    #[test]
+    fn super_with_crlf_line_endings_no_offense() {
+        // FP #2: Windows \r\n line endings cause \r to be treated as non-whitespace
+        // in has_comment_after_end, preventing comment detection after the def's end.
+        let source = b"module Foo\r\n  class Bar\r\n\r\n    GD = \"x\"\r\n\r\n\r\n    def initialize\r\n      super\r\n    end\r\n  \r\n  \r\n    # Returns stuff\r\n    def foo\r\n    end\r\n  end\r\nend\r\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &RedundantInitialize,
+            source,
+            crate::cop::CopConfig::default(),
+            "test.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should not flag super-forwarding initialize with \\r\\n line endings when comment follows, got {} offense(s)",
+            diags.len(),
+        );
+    }
 
     #[test]
     fn single_line_def_with_inline_comment_no_offense() {
