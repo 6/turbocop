@@ -20,3 +20,6 @@ expect($stderr).to receive(:puts).once.with(%r{#{Regexp.escape(duration.to_s)} s
 /#{path + "/" + file}/
 /#{a}/
 /prefix#{"/middle"}/
+if %r/#{column_name} #{Regexp.quote(column.sql_type)}(?: COLLATE \w+)? AS \((?<expression>.+?)\) #{column.extra}/ =~ create_table_info
+  nil
+end
