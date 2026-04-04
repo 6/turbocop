@@ -241,3 +241,6 @@ def final_rescue_assignment(flag)
     raise e
   end
 end
+
+exec_resp = PWN::Plugins::MSR206.exec(
+^ Lint/UselessAssignment: Useless assignment to variable - `exec_resp`.

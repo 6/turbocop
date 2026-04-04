@@ -471,6 +471,30 @@ def fetch_with_retry
   result
 end
 
+# Pattern matching captures are not flagged (RuboCop does not flag them)
+def pattern_match_unused_capture
+  case [1, 2, 3]
+  in [_, middle, *rest]
+    puts middle
+  end
+end
+
+# Pattern matching capture with named pin
+def pattern_match_named_capture
+  case expr
+  in [Integer => x, Integer => y]
+    puts x
+  end
+end
+
+# Pattern matching with hash patterns
+def pattern_match_hash
+  case data
+  in { name: name, **rest }
+    puts name
+  end
+end
+
 # Multiple rescue clauses are mutually exclusive. A later read after the
 # rescue chain uses whichever branch assigned the value.
 def rescue_chain_value
