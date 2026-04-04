@@ -68,6 +68,24 @@ use crate::parse::source::SourceFile;
 ///   excluded them because only `each`/`select`-style iterators were
 ///   allowlisted. Keeping the same structural guards and only adding `map`
 ///   recovers those FNs without broadening to unrelated block shapes.
+///
+/// ## Fixes applied (2026-04-04)
+/// - **String value check**: `UnsafeRangeCollector` now uses
+///   `StringNode::unescaped()` to check decoded string values for `\n`,
+///   matching RuboCop's `safe_to_split?` which checks `n.value.include?("\n")`.
+///   Previously only source-level newline bytes were checked, causing:
+///   - FPs: strings with escape sequences like `"AT+CLAC\r\n"` were not marked
+///     unsafe (source has no literal newline), so calls containing them were
+///     incorrectly flagged.
+///   - FNs: string concatenations with `\` line continuation like
+///     `"foo" \ "bar"` were falsely marked unsafe (source spans lines), so
+///     calls containing them were incorrectly suppressed.
+/// - **Block body exclusion**: `checked_chain_ranges` now excludes block bodies.
+///   In RuboCop, the send node's range does not include the block (the block is
+///   a parent node), so calls inside block bodies are checked independently.
+///   In Prism, `CallNode` includes the block, so the old code suppressed ALL
+///   calls inside block bodies of chains. Now only the chain portion (up to the
+///   block start) is marked as checked.
 pub struct RedundantLineBreak;
 
 impl Cop for RedundantLineBreak {
@@ -225,8 +243,11 @@ impl<'pr> Visit<'pr> for UnsafeRangeCollector {
                 return;
             }
         }
-        let content = node.location().as_slice();
-        if content.contains(&b'\n') {
+        // Check the decoded VALUE for newlines, not the source representation.
+        // This matches RuboCop's `n.value.include?("\n")` in `safe_to_split?`.
+        // Source-level checks miss escape sequences like "\r\n" (FPs) and
+        // falsely catch backslash line continuations "foo" \ "bar" (FNs).
+        if node.unescaped().contains(&b'\n') {
             let loc = node.location();
             self.ranges.push((loc.start_offset(), loc.end_offset()));
         }
@@ -240,29 +261,24 @@ impl<'pr> Visit<'pr> for UnsafeRangeCollector {
                 return;
             }
         }
-        let content = node.location().as_slice();
-        if content.contains(&b'\n') {
-            let loc = node.location();
-            self.ranges.push((loc.start_offset(), loc.end_offset()));
-        }
-        // Recurse into children for nested unsafe constructs
+        // Don't check source-level newlines here. Backslash line continuations
+        // ("foo #{x}" \ "bar #{y}") span source lines but the value has no \n.
+        // Instead, rely on recursion into child StringNode parts, which use
+        // unescaped() to correctly detect newlines in the decoded value.
         ruby_prism::visit_interpolated_string_node(self, node);
     }
 
     fn visit_symbol_node(&mut self, node: &ruby_prism::SymbolNode<'pr>) {
-        let content = node.location().as_slice();
-        if content.contains(&b'\n') {
+        // Check decoded value for newlines, matching RuboCop's safe_to_split?.
+        if node.unescaped().contains(&b'\n') {
             let loc = node.location();
             self.ranges.push((loc.start_offset(), loc.end_offset()));
         }
     }
 
     fn visit_interpolated_symbol_node(&mut self, node: &ruby_prism::InterpolatedSymbolNode<'pr>) {
-        let content = node.location().as_slice();
-        if content.contains(&b'\n') {
-            let loc = node.location();
-            self.ranges.push((loc.start_offset(), loc.end_offset()));
-        }
+        // Rely on recursion into child StringNode parts for newline detection.
+        ruby_prism::visit_interpolated_symbol_node(self, node);
     }
 
     /// Multiline parenthesized groups `(...)` — maps to `:begin` in Parser AST.
@@ -624,9 +640,17 @@ impl<'pr> Visit<'pr> for RedundantLineBreakVisitor<'_, 'pr> {
             // RuboCop's walk-up-to-outermost behavior.
             let has_call_receiver = node.receiver().and_then(|r| r.as_call_node()).is_some();
             if has_call_receiver {
-                // This node has a call chain underneath. Mark the entire range
+                // This node has a call chain underneath. Mark the chain range
                 // so inner calls are not individually checked.
-                self.checked_chain_ranges.push((start_offset, end_offset));
+                // Exclude block bodies: in RuboCop, the send node's range does
+                // not include the block (the block is a parent node). Calls
+                // inside block bodies should be checked independently.
+                let effective_end = node
+                    .block()
+                    .and_then(|b| b.as_block_node())
+                    .map_or(end_offset, |block| block.location().start_offset());
+                self.checked_chain_ranges
+                    .push((start_offset, effective_end));
             }
 
             // Skip index access chains: hash[:foo][:bar]

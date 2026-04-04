@@ -30,18 +30,7 @@ this_is_a_very_long_method_name_that_makes_the_line_quite_long(argument_one, arg
 MSG = 'This is a long error message string that definitely ' \
       'exceeds one hundred and twenty characters when concatenated together'
 
-# String concatenation with backslash — RuboCop handles these at the AST
-# level and checks the full expression context, not just the continuation.
-# The text-based approach should skip string literal concatenation.
-msg = 'short string that ' \
-      'fits on one line'
-
-error = "Node type must be any of #{types}, " \
-        "passed #{node_type}"
-
-label = "#{name}::" \
-        "#{child_name}"
-
+# String concatenation where the value contains \n — safe_to_split? is false
 expect(output)
   .to eq('[modify] A configuration is added into ' \
          "#{path}.\n")
@@ -216,21 +205,18 @@ items.each do |item|
 end \
   .tap { |r| log(r) }
 
-# Keyword-arg call inside a non-iterator predicate block should stay skipped.
-existing_indexes_for(table_name).any? do |existing_index_column_names|
-  leftmost_match?(
-    haystack: existing_index_column_names,
-    needle: indexed_column_names
-  )
-end
+# Method call with \r\n escape — decoded value contains \n, so safe_to_split?
+# returns false and RuboCop does not flag it.
+PWN::Plugins::Serial.request(
+  serial_obj: serial_obj,
+  payload: "AT+CLAC\r\n"
+)
 
-# Iterator block with an explicit object receiver should stay skipped.
-records.sort.each do |record|
-  record.update(
-    status: :processed,
-    audit_comment: "bulk update"
-  )
-end
+# Method call with interpolated string containing \r\n escape
+PWN::Plugins::Serial.request(
+  serial_obj: serial_obj,
+  payload: "ATDT#{voicemail_num};\r\n"
+)
 
 # Multiline parenthesized group — outer call has a multiline ParenthesesNode
 # descendant so safe_to_split? is false. The inner expression is too long to
