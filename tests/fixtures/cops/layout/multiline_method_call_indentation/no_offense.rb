@@ -55,8 +55,8 @@ expect(subject)
 
 result =
   Foo
-    .where(active: true)
-    .order(:name)
+  .where(active: true)
+  .order(:name)
 
 # Trailing dot style: properly indented
 a.

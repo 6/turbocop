@@ -59,3 +59,8 @@ end
 method(key: value.foo.bar
                     .baz)
                     ^^^^ Layout/MultilineMethodCallIndentation: Align `.baz` with `value.foo.bar` on line 48.
+
+# Aligned style fallback: implicit receiver chain with no indent
+where("first_condition")
+.where("second_condition")
+^ Layout/MultilineMethodCallIndentation: Use 2 (not 0) spaces for indentation of a chained method call.
