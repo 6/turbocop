@@ -215,20 +215,26 @@ raise 'Duplicate field names are not allowed!' unless \
                                                       ^ Style/RedundantLineContinuation: Redundant line continuation.
   temp_field_names == temp_field_names.uniq
 
-.select('from_customer_id,sum(carrying_fee) sum_carrying_fee') \
-^ Style/RedundantLineContinuation: Redundant line continuation.
+query(:state_ni => ['canceled', 'invalided'])
+  .select('id') \
+                ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .group('id')
 
-:state_ni => ['canceled','invalided'] ) \
-^ Style/RedundantLineContinuation: Redundant line continuation.
+query(:state_ni => ['canceled', 'invalided']) \
+                                              ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .select('name') \
+                  ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .group('name')
 
-.select('from_customer_name,from_customer_mobile,sum(carrying_fee) sum_carrying_fee') \
-^ Style/RedundantLineContinuation: Redundant line continuation.
+expect(details).to \
+  match(%r{foo \
+               ^ Style/RedundantLineContinuation: Redundant line continuation.
+#{bar}})
 
-match(%r{^\["The property '#/data/0' did not contain a required property of 'required_string' in schema \
-^ Style/RedundantLineContinuation: Redundant line continuation.
+greek_chr = ['&Psi;', '&Omega;']\
+                                ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .zip(%w[psi omega])
 
-'&Psi;', '&Omega;']\
-^ Style/RedundantLineContinuation: Redundant line continuation.
-
-'&exist;', '&forall;', '&rArr;', '&hArr;', '&rarr;', '&harr;', '&uarr;']\
-^ Style/RedundantLineContinuation: Redundant line continuation.
+math_chr = ['&exist;', '&forall;', '&rArr;']\
+                                            ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .zip(%w[exist forall rarr])
