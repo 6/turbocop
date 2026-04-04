@@ -62,54 +62,54 @@ Compared with RuboCop on [**5,560 open-source repos**](docs/corpus.md) (586k Rub
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
-| Department | Cops | Exact match (default) | Differed | Exact match % (default) |
-|------------|-----:|----------------------:|---------:|------------------------:|
-| Layout | 100 | 89 | 11 | 89.0% |
-| Lint | 148 | 145 | 3 | 97.9% |
-| Style | 287 | 268 | 19 | 93.3% |
-| Metrics | 10 | 10 | 0 | ✓ 100.0% |
-| Naming | 19 | 19 | 0 | ✓ 100.0% |
-| Security | 6 | 6 | 0 | ✓ 100.0% |
-| Bundler | 7 | 7 | 0 | ✓ 100.0% |
-| Gemspec | 10 | 10 | 0 | ✓ 100.0% |
-| Migration | 1 | 1 | 0 | ✓ 100.0% |
-| **Total** | **588** | **555** | **33** | **94.3%** |
+| Department | Cops | Exact match (default) | Differed | Exact match % (default) | Exact match % (all variants) |
+|------------|-----:|----------------------:|---------:|------------------------:|-----------------------------:|
+| Layout | 100 | 89 | 11 | 89.0% | 55.0% |
+| Lint | 148 | 145 | 3 | 97.9% | 95.2% |
+| Style | 287 | 268 | 19 | 93.3% | 77.3% |
+| Metrics | 10 | 10 | 0 | ✓ 100.0% | ✓ 100.0% |
+| Naming | 19 | 19 | 0 | ✓ 100.0% | 68.4% |
+| Security | 6 | 6 | 0 | ✓ 100.0% | ✓ 100.0% |
+| Bundler | 7 | 7 | 0 | ✓ 100.0% | ✓ 100.0% |
+| Gemspec | 10 | 10 | 0 | ✓ 100.0% | 90.0% |
+| Migration | 1 | 1 | 0 | ✓ 100.0% | ✓ 100.0% |
+| **Total** | **588** | **555** | **33** | **94.3%** | **78.9%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
-| Department | Cops | Exact match (default) | Differed | Exact match % (default) |
-|------------|-----:|----------------------:|---------:|------------------------:|
-| Rails | 138 | 120 | 18 | 86.9% |
+| Department | Cops | Exact match (default) | Differed | Exact match % (default) | Exact match % (all variants) |
+|------------|-----:|----------------------:|---------:|------------------------:|-----------------------------:|
+| Rails | 138 | 120 | 18 | 86.9% | 65.9% |
 
 **[rubocop-performance](https://github.com/rubocop/rubocop-performance)** `1.26.1` (52 cops)
 
-| Department | Cops | Exact match (default) | Differed | Exact match % (default) |
-|------------|-----:|----------------------:|---------:|------------------------:|
-| Performance | 52 | 52 | 0 | ✓ 100.0% |
+| Department | Cops | Exact match (default) | Differed | Exact match % (default) | Exact match % (all variants) |
+|------------|-----:|----------------------:|---------:|------------------------:|-----------------------------:|
+| Performance | 52 | 52 | 0 | ✓ 100.0% | ✓ 100.0% |
 
 **[rubocop-rspec](https://github.com/rubocop/rubocop-rspec)** `3.9.0` (113 cops)
 
-| Department | Cops | Exact match (default) | Differed | Exact match % (default) |
-|------------|-----:|----------------------:|---------:|------------------------:|
-| RSpec | 113 | 113 | 0 | ✓ 100.0% |
+| Department | Cops | Exact match (default) | Differed | Exact match % (default) | Exact match % (all variants) |
+|------------|-----:|----------------------:|---------:|------------------------:|-----------------------------:|
+| RSpec | 113 | 113 | 0 | ✓ 100.0% | 88.4% |
 
 **[rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails)** `2.32.0` (8 cops)
 
-| Department | Cops | Exact match (default) | Differed | Exact match % (default) |
-|------------|-----:|----------------------:|---------:|------------------------:|
-| RSpecRails | 8 | 8 | 0 | ✓ 100.0% |
+| Department | Cops | Exact match (default) | Differed | Exact match % (default) | Exact match % (all variants) |
+|------------|-----:|----------------------:|---------:|------------------------:|-----------------------------:|
+| RSpecRails | 8 | 8 | 0 | ✓ 100.0% | 62.5% |
 
 **[rubocop-factory_bot](https://github.com/rubocop/rubocop-factory_bot)** `2.28.0` (11 cops)
 
-| Department | Cops | Exact match (default) | Differed | Exact match % (default) |
-|------------|-----:|----------------------:|---------:|------------------------:|
-| FactoryBot | 11 | 11 | 0 | ✓ 100.0% |
+| Department | Cops | Exact match (default) | Differed | Exact match % (default) | Exact match % (all variants) |
+|------------|-----:|----------------------:|---------:|------------------------:|-----------------------------:|
+| FactoryBot | 11 | 11 | 0 | ✓ 100.0% | 81.8% |
 
 **[rubocop-rake](https://github.com/rubocop/rubocop-rake)** `0.7.1` (5 cops)
 
-| Department | Cops | Exact match (default) | Differed | Exact match % (default) |
-|------------|-----:|----------------------:|---------:|------------------------:|
-| Rake | 5 | 3 | 2 | 60.0% |
+| Department | Cops | Exact match (default) | Differed | Exact match % (default) | Exact match % (all variants) |
+|------------|-----:|----------------------:|---------:|------------------------:|-----------------------------:|
+| Rake | 5 | 3 | 2 | 60.0% | 60.0% |
 
 **Default** = tested with the default RuboCop config. **All variants** = tested with every supported `EnforcedStyle` value for each cop.
 See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
