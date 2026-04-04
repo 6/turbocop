@@ -286,8 +286,12 @@ def test_example_order_is_stable():
         ]
 
 
-def test_variant_stats_embedded_in_json():
-    """When --style-variant-results is provided, variant stats are in the JSON output."""
+def test_variant_stats_not_in_json_before_patch():
+    """diff_results.py does NOT embed variant stats in JSON — patch_variant_stats.py does that.
+
+    This ensures the JSON from diff_results.py doesn't contain stale variant
+    stats that would be overwritten by the patch step anyway.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         nc_dir = tmp / "nitrocop"
@@ -334,14 +338,11 @@ def test_variant_stats_embedded_in_json():
         assert result.returncode == 0, f"Failed:\n{result.stderr}"
 
         data = json.loads(out_json.read_text())
-        # Variant stats should be in summary
-        assert "variant_overall_match_rate" in data["summary"]
-        assert data["summary"]["variant_matches"] == 80 + 1  # variant + default
-        assert data["summary"]["variant_fp"] == 5
-        assert data["summary"]["variant_fn"] == 3
-        # Department should have variant_match_rate
-        style_dept = [d for d in data["by_department"] if d["department"] == "Style"][0]
-        assert "variant_match_rate" in style_dept
+        # Variant stats should NOT be in JSON — they're patched in later
+        assert "variant_overall_match_rate" not in data["summary"]
+        # But the markdown should still have variant rows
+        md = out_md.read_text()
+        assert "Match rate (all variants)" in md
 
 
 def test_style_variant_rows_in_markdown():

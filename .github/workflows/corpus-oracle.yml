@@ -724,10 +724,18 @@ jobs:
               print(f'Merged {len(files)} variant batch results')
           "
 
+      - name: Patch variant stats into corpus results
+        run: |
+          # Must run AFTER IG merge so variant department rates are computed
+          # from the final (merged) default FP/FN. Without this ordering,
+          # variant rates can appear higher than default rates.
+          python3 bench/corpus/patch_variant_stats.py \
+            --corpus corpus-results.json \
+            --variants style-variant-results.json
+
       - name: Regenerate report with variant data
         run: |
           if [ -f style-variant-results.json ]; then
-            # Re-run just the markdown generation with variant data included
             COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
             CONTEXT_DIR=""
             if [ -d "all-results/results/context" ]; then
@@ -737,7 +745,7 @@ jobs:
               --nitrocop-dir all-results/results/nitrocop \
               --rubocop-dir all-results/results/rubocop \
               --manifest bench/corpus/manifest.jsonl \
-              --output-json corpus-results.json \
+              --output-json /dev/null \
               --output-md corpus-results.md \
               ${COP_LIST:+--cop-list "$COP_LIST"} \
               $CONTEXT_DIR \

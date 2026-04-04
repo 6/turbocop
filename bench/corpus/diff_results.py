@@ -540,41 +540,10 @@ def main():
     variant_overall_rate = variant_total_matches / variant_oracle_total if variant_oracle_total > 0 else 1.0
 
     # ── Write JSON ──
-    json_summary = {
-        "total_repos": len(all_ids),
-        "repos_perfect": repos_perfect,
-        "repos_error": repos_error,
-        "repos_with_rubocop_warnings": len(warning_repos),
-        "total_offenses_compared": oracle_total,
-        "matches": total_matches,
-        "fp": total_fp,
-        "fn": total_fn,
-        "registered_cops": registered_cops,
-        "exercised_cops": exercised_cops,
-        "perfect_cops": perfect_cops,
-        "diverging_cops": diverging_cops,
-        "inactive_cops": inactive_cops,
-        "overall_match_rate": trunc4(overall_rate),
-        "total_files_inspected": total_files,
-        "rubocop_files_dropped": total_files_dropped,
-    }
-    if variant_by_cop:
-        json_summary["variant_overall_match_rate"] = trunc4(variant_overall_rate)
-        json_summary["variant_matches"] = variant_total_matches
-        json_summary["variant_fp"] = variant_total_fp
-        json_summary["variant_fn"] = variant_total_fn
-
-    # Per-department variant stats for README consumption
-    json_by_department = by_department
-    if variant_by_cop:
-        for dept_entry in json_by_department:
-            vd = variant_dept_stats.get(dept_entry["department"])
-            if vd:
-                dept_total = dept_entry["matches"] + dept_entry["fp"] + dept_entry["fn"]
-                v_total = dept_total + vd["matches"] + vd["fp"] + vd["fn"]
-                v_matches = dept_entry["matches"] + vd["matches"]
-                dept_entry["variant_match_rate"] = trunc4(v_matches / v_total) if v_total > 0 else 1.0
-
+    # NOTE: variant stats (variant_overall_match_rate, variant_match_rate per
+    # department) are NOT embedded here. They are patched in by
+    # patch_variant_stats.py AFTER the include-gated merge, so that variant
+    # rates are computed from the final default FP/FN numbers.
     json_output = {
         "schema": 1,
         "run_date": datetime.now(timezone.utc).isoformat(),
@@ -587,8 +556,25 @@ def main():
             "rubocop-factory_bot": "2.28.0",
             "rubocop-rake": "0.7.1",
         },
-        "summary": json_summary,
-        "by_department": json_by_department,
+        "summary": {
+            "total_repos": len(all_ids),
+            "repos_perfect": repos_perfect,
+            "repos_error": repos_error,
+            "repos_with_rubocop_warnings": len(warning_repos),
+            "total_offenses_compared": oracle_total,
+            "matches": total_matches,
+            "fp": total_fp,
+            "fn": total_fn,
+            "registered_cops": registered_cops,
+            "exercised_cops": exercised_cops,
+            "perfect_cops": perfect_cops,
+            "diverging_cops": diverging_cops,
+            "inactive_cops": inactive_cops,
+            "overall_match_rate": trunc4(overall_rate),
+            "total_files_inspected": total_files,
+            "rubocop_files_dropped": total_files_dropped,
+        },
+        "by_department": by_department,
         "by_cop": by_cop,  # all cops (gen_tiers.py needs the full list)
         "by_repo": repo_results,
         "cop_activity_repos": {
