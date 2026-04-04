@@ -24,6 +24,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+*.py[codz]
+*$py.class
 corpus-results.json
 corpus-results.md
 .check-cop-cache/
