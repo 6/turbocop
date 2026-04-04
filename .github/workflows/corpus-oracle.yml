@@ -567,35 +567,10 @@ jobs:
 
       - name: Consolidate rubocop cache
         run: |
-          # Merge all per-batch rubocop results into a single SHA-indexed cache.
-          # Results are stored as {repo_id}_{sha}.json so manifest SHA changes
-          # automatically invalidate stale entries.
-          mkdir -p rubocop-cache
-          python3 << 'PYEOF'
-          import json, shutil, os
-          manifest = {}
-          with open('bench/corpus/manifest.jsonl') as f:
-              for line in f:
-                  line = line.strip()
-                  if line:
-                      r = json.loads(line)
-                      manifest[r['id']] = r['sha']
-          src = 'all-results/results/rubocop'
-          if not os.path.isdir(src):
-              print('No rubocop results to consolidate')
-          else:
-              count = 0
-              for fname in os.listdir(src):
-                  if not fname.endswith('.json'):
-                      continue
-                  repo_id = fname[:-5]
-                  sha = manifest.get(repo_id)
-                  if sha:
-                      shutil.copy2(os.path.join(src, fname),
-                                   os.path.join('rubocop-cache', f'{repo_id}_{sha}.json'))
-                      count += 1
-              print(f'Consolidated {count} rubocop results')
-          PYEOF
+          python3 bench/corpus/consolidate_cache.py baseline \
+            --manifest bench/corpus/manifest.jsonl \
+            --source all-results/results/rubocop \
+            --dest rubocop-cache
 
       - name: Compute rubocop cache key
         id: rubocop-cache-key
@@ -623,35 +598,10 @@ jobs:
 
       - name: Consolidate variant rubocop cache
         run: |
-          mkdir -p variant-rubocop-cache
-          python3 << 'PYEOF'
-          import json, shutil, os
-          manifest = {}
-          with open('bench/corpus/manifest.jsonl') as f:
-              for line in f:
-                  line = line.strip()
-                  if line:
-                      r = json.loads(line)
-                      manifest[r['id']] = r['sha']
-          count = 0
-          for batch_dir in sorted(
-              d for d in os.listdir('all-results/results')
-              if d.startswith('variant-rubocop-variant_batch_')
-          ):
-              batch_name = batch_dir.replace('variant-rubocop-', '')
-              src = os.path.join('all-results/results', batch_dir)
-              for fname in os.listdir(src):
-                  if not fname.endswith('.json'):
-                      continue
-                  repo_id = fname[:-5]
-                  sha = manifest.get(repo_id)
-                  if sha:
-                      shutil.copy2(
-                          os.path.join(src, fname),
-                          os.path.join('variant-rubocop-cache', f'{repo_id}_{sha}_{batch_name}.json'))
-                      count += 1
-          print(f'Consolidated {count} variant rubocop results')
-          PYEOF
+          python3 bench/corpus/consolidate_cache.py variants \
+            --manifest bench/corpus/manifest.jsonl \
+            --source all-results/results \
+            --dest variant-rubocop-cache
 
       - name: Save consolidated variant rubocop cache
         uses: actions/cache/save@v5
