@@ -143,3 +143,12 @@ foo&.bar && foo.bar.baz
 
 foo && (foo.bar? || (foo.baz? && foo.quux?))
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+(foo && foo.bar).custom_method
+ ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+(foo ? foo.bar : nil).custom_method
+ ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+(foo.bar if foo).custom_method
+ ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
