@@ -1,10 +1,34 @@
 #!/usr/bin/env python3
 """Generate variant batch configs from vendor defaults for corpus oracle runs.
 
-Groups all (cop, style) variants into batches where each batch overrides
-~80-100 cops simultaneously. Batch 1 sets each cop to its 2nd supported
-style, batch 2 to the 3rd, etc. Most cops have 2-3 styles, so batch 1
-covers all configurable cops and batches 2-3 cover progressively fewer.
+Groups all (cop, style) variants into 3 batches where each batch overrides
+cops simultaneously. Batch 1 sets each cop to its 2nd supported style,
+batch 2 to the 3rd, and batch 3 to the 4th. Most cops have 2-3 styles,
+so batch 1 covers all 160 configurable cops and batches 2-3 cover
+progressively fewer.
+
+Of 248 total non-default style alternatives across 171 style params:
+  - 113 params have 1 alternative  → tested in batch 1 only
+  - 43 params have 2 alternatives  → tested in batches 1-2
+  - 15 params have 3+ alternatives → tested in batches 1-3
+
+Only 3 params have 4+ alternatives, requiring us to drop 4 styles to
+fit in 3 batches. We keep the first overflow alternative (alt[2]) per
+param, which in all 3 cases is the most useful style to test:
+
+  Cop / param                                 | Keep (batch 3)       | Drop (0 GitHub users)
+  --------------------------------------------|----------------------|-------------------------
+  Layout/EmptyLinesAroundClassBody             | empty_lines_special  | beginning_only, ending_only
+  Style/EndlessMethod                          | require_single_line  | require_always
+  Style/HashSyntax.EnforcedShorthandSyntax     | consistent (4 users) | either_consistent
+
+Decision rationale (April 2026 GitHub code search):
+  - beginning_only, ending_only: 0 repos use these in .rubocop.yml
+  - require_always: 0 repos; reviewers on rubocop#11064 called it "relatively limited"
+  - either_consistent: 0 repos; consistent has 4 users (incl. Cookpad)
+  - empty_lines_special: 1 repo, but highest divergence (228k) so best for catching bugs
+
+This gives 244/248 (98.4%) coverage of all supported style values.
 
 Usage:
     python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_batches/
@@ -25,8 +49,15 @@ from corpus_stress import VENDOR_CONFIGS, parse_enforced_styles  # noqa: E402
 BASELINE_PATH = "../baseline_rubocop.yml"
 
 
+MAX_BATCHES = 3
+
+
 def generate_batches(output_dir: Path, *, dry_run: bool = False) -> int:
     """Generate variant_batch_{n}.yml files.
+
+    Produces at most MAX_BATCHES batches. Alternatives beyond batch 3 are
+    folded into the last batch so that every supported style value is
+    covered without adding extra CI jobs.
 
     Returns number of batches created.
     """
@@ -46,16 +77,34 @@ def generate_batches(output_dir: Path, *, dry_run: bool = False) -> int:
     for s in all_styles:
         by_cop.setdefault(s["cop"], []).append(s)
 
-    batches_written = 0
-    for batch_idx in range(max_alts):
-        # Collect cops that have an alternative at this index
-        entries: list[tuple[str, str, str, str]] = []  # (cop, key, value, default)
-        for cop in sorted(by_cop.keys()):
-            for s in by_cop[cop]:
-                if batch_idx < len(s["alternatives"]):
-                    alt = s["alternatives"][batch_idx]
-                    entries.append((cop, s["key"], alt, s["default"]))
+    # Build batch assignments: each batch gets a list of (cop, key, value, default).
+    # Alternatives 0..MAX_BATCHES-2 go to batches 1..MAX_BATCHES-1 as before.
+    # Alternatives MAX_BATCHES-1 and beyond are all folded into the last batch.
+    # A YAML key can only appear once per cop per batch, so when multiple
+    # overflow alternatives map to the last batch we must pick one.
+    batch_entries: list[list[tuple[str, str, str, str]]] = [[] for _ in range(MAX_BATCHES)]
 
+    for cop in sorted(by_cop.keys()):
+        for s in by_cop[cop]:
+            for alt_idx, alt in enumerate(s["alternatives"]):
+                # Map alternative index to batch index, capping at last batch
+                batch_idx = min(alt_idx, MAX_BATCHES - 1)
+                batch_entries[batch_idx].append((cop, s["key"], alt, s["default"]))
+
+    # Deduplicate last batch: if a (cop, key) appears multiple times
+    # (from folding), keep only the FIRST (lowest-index) alternative.
+    # This is alt[MAX_BATCHES-1] — the first overflow. For all 3 cops
+    # that overflow, alt[2] is the most useful style to test (see module
+    # docstring for rationale). Later alternatives are dropped.
+    last = batch_entries[MAX_BATCHES - 1]
+    seen: dict[tuple[str, str], int] = {}
+    for i, (cop, key, value, default) in enumerate(last):
+        if (cop, key) not in seen:
+            seen[(cop, key)] = i
+    batch_entries[MAX_BATCHES - 1] = [last[i] for i in sorted(seen.values())]
+
+    batches_written = 0
+    for batch_idx, entries in enumerate(batch_entries):
         if not entries:
             continue
 
@@ -66,7 +115,6 @@ def generate_batches(output_dir: Path, *, dry_run: bool = False) -> int:
 
         lines = [
             f"# Auto-generated variant batch {batch_idx + 1}:",
-            f"# Each cop set to alternative style #{batch_idx + 1}.",
             f"# {len(cop_entries)} cops, {len(entries)} style overrides.",
             "# Generated by: python3 bench/corpus/gen_variant_batches.py",
             "",
@@ -85,7 +133,6 @@ def generate_batches(output_dir: Path, *, dry_run: bool = False) -> int:
 
         if dry_run:
             print(f"--- {filename} ({len(cop_entries)} cops, {len(entries)} overrides) ---")
-            # Show first 5 cops as preview
             for line in content.splitlines()[:20]:
                 print(f"  {line}")
             if len(content.splitlines()) > 20:

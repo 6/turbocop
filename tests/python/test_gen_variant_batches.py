@@ -53,3 +53,40 @@ def test_batch_1_has_most_cops(tmp_path):
         batch_2_lines = (out / "variant_batch_2.yml").read_text().splitlines()
         cop_lines_2 = [x for x in batch_2_lines if "/" in x and not x.startswith("#") and not x.startswith(" ")]
         assert len(cop_lines_1) >= len(cop_lines_2)
+
+
+def test_max_3_batches(tmp_path):
+    """Generation produces at most 3 batches (MAX_BATCHES)."""
+    out = tmp_path / "batches"
+    n = gen_variant_batches.generate_batches(out)
+    assert n <= 3
+    files = sorted(out.glob("variant_batch_*.yml"))
+    assert len(files) <= 3
+
+
+def test_overflow_keeps_first_alternative(tmp_path):
+    """Cops with 4+ alternatives keep the first overflow (alt[2]) in batch 3.
+
+    Specifically:
+      - EmptyLinesAroundClassBody: keeps empty_lines_special, not beginning_only/ending_only
+      - EndlessMethod: keeps require_single_line, not require_always
+      - HashSyntax shorthand: keeps consistent, not either_consistent
+    """
+    out = tmp_path / "batches"
+    n = gen_variant_batches.generate_batches(out)
+    assert n == 3
+
+    batch_3 = (out / "variant_batch_3.yml").read_text()
+
+    # Kept styles should be present
+    assert "empty_lines_special" in batch_3
+    assert "require_single_line" in batch_3
+    # HashSyntax.EnforcedShorthandSyntax: consistent — check it's there
+    # but "consistent" appears in comments too, so check the value line
+    assert "EnforcedShorthandSyntax: consistent" in batch_3
+
+    # Dropped styles must NOT appear
+    assert "beginning_only" not in batch_3
+    assert "ending_only" not in batch_3
+    assert "require_always" not in batch_3
+    assert "either_consistent" not in batch_3
