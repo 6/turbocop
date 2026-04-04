@@ -13,6 +13,11 @@ class User < ApplicationRecord
   self.ignored_columns = array
 end
 
+class User < ApplicationRecord
+  # Existing column with += — skip
+  self.ignored_columns += %w[account]
+end
+
 module Abc
   # Not a class — skip
   self.ignored_columns = [:real_name]
