@@ -587,3 +587,144 @@ def test_style_config_override_threads_to_run_one_repo():
     finally:
         check_cop._run_corpus_nitrocop = original
         check_cop._STYLE_CONFIG_OVERRIDE = old_override
+
+
+# ── variant discovery tests ──
+
+
+def test_variant_styles_for_cop_finds_overrides(tmp_path):
+    """Discovers which variant batches include a given cop and returns style labels."""
+    batches = tmp_path / "batches"
+    batches.mkdir()
+    (batches / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/TrailingCommaInHashLiteral:\n"
+        "  EnforcedStyleForMultiline: comma\n"
+        "Layout/DotPosition:\n"
+        "  EnforcedStyle: trailing\n"
+    )
+    (batches / "variant_batch_2.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/TrailingCommaInHashLiteral:\n"
+        "  EnforcedStyleForMultiline: consistent_comma\n"
+    )
+
+    result = check_cop.variant_styles_for_cop(
+        "Style/TrailingCommaInHashLiteral", str(batches))
+    assert len(result) == 2
+    assert result[0]["batch_config"] == str(batches / "variant_batch_1.yml")
+    assert result[0]["style_label"] == "comma"
+    assert result[1]["style_label"] == "consistent_comma"
+
+
+def test_variant_styles_for_cop_returns_empty_for_non_overridden(tmp_path):
+    """Cops not overridden in any batch return empty list."""
+    batches = tmp_path / "batches"
+    batches.mkdir()
+    (batches / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Foo:\n"
+        "  EnforcedStyle: bar\n"
+    )
+
+    result = check_cop.variant_styles_for_cop("Style/Other", str(batches))
+    assert result == []
+
+
+def test_variant_styles_for_cop_missing_dir():
+    """Missing batches directory returns empty list."""
+    result = check_cop.variant_styles_for_cop("Style/Foo", "/nonexistent/path")
+    assert result == []
+
+
+# ── variant check result tests ──
+
+
+def test_run_variant_checks_returns_per_variant_results(tmp_path):
+    """run_variant_checks runs nitrocop + rubocop per variant and returns results."""
+    batches = tmp_path / "batches"
+    batches.mkdir()
+    (batches / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Foo:\n"
+        "  EnforcedStyle: bar\n"
+    )
+    (batches / "variant_batch_2.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Foo:\n"
+        "  EnforcedStyle: baz\n"
+    )
+
+    # Mock the nitrocop and rubocop runners
+    nc_calls = []
+    rc_calls = []
+
+    def fake_nc(repo_dir, *, cop=None, binary=None, timeout=120, cwd=None, config_override=None):
+        nc_calls.append({"cop": cop, "config": config_override})
+        return {"count": 10, "offenses": [], "error": None}
+
+    def fake_rc(repo_dir, *, cop=None, config=None, timeout=120):
+        rc_calls.append({"cop": cop, "config": config})
+        return {"count": 8}
+
+    results = check_cop.run_variant_checks(
+        cop_name="Style/Foo",
+        repo_dirs=[str(tmp_path / "repo_a"), str(tmp_path / "repo_b")],
+        batches_dir=str(batches),
+        run_nitrocop_fn=fake_nc,
+        run_rubocop_fn=fake_rc,
+    )
+
+    # Should have 2 variants (batch 1 and 2)
+    assert len(results) == 2
+    assert results[0]["style_label"] == "bar"
+    assert results[1]["style_label"] == "baz"
+    # 2 repos × 2 variants = 4 nitrocop calls, 4 rubocop calls
+    assert len(nc_calls) == 4
+    assert len(rc_calls) == 4
+    # Each variant: 2 repos × 10 nitrocop = 20, 2 repos × 8 rubocop = 16
+    assert results[0]["nitrocop_total"] == 20
+    assert results[0]["rubocop_total"] == 16
+    assert results[0]["fp"] == 4  # 20 - 16
+    assert results[0]["fn"] == 0
+
+
+def test_run_variant_checks_skips_cops_not_in_batch(tmp_path):
+    """Cops not overridden in any batch get empty results."""
+    batches = tmp_path / "batches"
+    batches.mkdir()
+    (batches / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Other:\n"
+        "  EnforcedStyle: bar\n"
+    )
+
+    results = check_cop.run_variant_checks(
+        cop_name="Style/NotInBatch",
+        repo_dirs=[str(tmp_path / "repo_a")],
+        batches_dir=str(batches),
+        run_nitrocop_fn=lambda *a, **kw: {"count": 0, "offenses": [], "error": None},
+        run_rubocop_fn=lambda *a, **kw: {"count": 0},
+    )
+    assert results == []
+
+
+def test_run_variant_checks_handles_rubocop_errors(tmp_path):
+    """When rubocop returns negative count (error), still produces results."""
+    batches = tmp_path / "batches"
+    batches.mkdir()
+    (batches / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Foo:\n"
+        "  EnforcedStyle: bar\n"
+    )
+
+    results = check_cop.run_variant_checks(
+        cop_name="Style/Foo",
+        repo_dirs=[str(tmp_path / "repo_a")],
+        batches_dir=str(batches),
+        run_nitrocop_fn=lambda *a, **kw: {"count": 5, "offenses": [], "error": None},
+        run_rubocop_fn=lambda *a, **kw: {"count": -1},  # error
+    )
+    assert len(results) == 1
+    assert results[0]["rubocop_errors"] == 1
