@@ -709,6 +709,47 @@ def test_run_variant_checks_skips_cops_not_in_batch(tmp_path):
     assert results == []
 
 
+def test_load_variant_baselines_from_file(tmp_path):
+    """Loads per-style baselines from style-variant-results.json."""
+    import tempfile
+    # Write a fake variant results file where the cache would expect it
+    cache_dir = Path(tempfile.gettempdir()) / "nitrocop-corpus-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "style-variant-results-99999.json"
+    cache_file.write_text(json.dumps({
+        "batches": [
+            {
+                "name": "variant_batch_1",
+                "by_cop": [
+                    {"cop": "Style/Foo", "style_label": "bar", "matches": 80, "fp": 5, "fn": 3},
+                    {"cop": "Style/Other", "style_label": "x", "matches": 10, "fp": 0, "fn": 0},
+                ],
+            },
+            {
+                "name": "variant_batch_2",
+                "by_cop": [
+                    {"cop": "Style/Foo", "style_label": "baz", "matches": 60, "fp": 10, "fn": 7},
+                ],
+            },
+        ]
+    }))
+    try:
+        result = check_cop.load_variant_baselines("Style/Foo", 99999)
+        assert "bar" in result
+        assert result["bar"]["fp"] == 5
+        assert result["bar"]["fn"] == 3
+        assert "baz" in result
+        assert result["baz"]["fp"] == 10
+        assert "x" not in result  # Style/Other, not Style/Foo
+    finally:
+        cache_file.unlink(missing_ok=True)
+
+
+def test_load_variant_baselines_no_run_id():
+    """Returns empty dict when run_id is None."""
+    assert check_cop.load_variant_baselines("Style/Foo", None) == {}
+
+
 def test_run_variant_checks_handles_rubocop_errors(tmp_path):
     """When rubocop returns negative count (error), still produces results."""
     batches = tmp_path / "batches"

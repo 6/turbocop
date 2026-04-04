@@ -98,10 +98,13 @@ def is_include_gated_cop(cop_name: str) -> bool:
     return False
 
 
-def download_corpus_results() -> Path:
-    """Download corpus-results.json from the latest successful CI run."""
-    path, _run_id, _sha = _download_corpus()
-    return path
+def download_corpus_results() -> tuple[Path, int]:
+    """Download corpus-results.json from the latest successful CI run.
+
+    Returns (path, run_id).
+    """
+    path, run_id, _sha = _download_corpus()
+    return path, run_id
 
 
 def ensure_binary():
@@ -740,6 +743,36 @@ def variant_styles_for_cop(
     return result
 
 
+def load_variant_baselines(
+    cop_name: str, run_id: int | None,
+) -> dict[str, dict]:
+    """Load per-style baseline FP/FN from the oracle's style-variant-results.json.
+
+    Returns {style_label: {fp, fn, matches}} or empty dict if unavailable.
+    """
+    if run_id is None:
+        return {}
+    from shared.corpus_artifacts import get_variant_results_path
+    path = get_variant_results_path(run_id)
+    if not path:
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    baselines: dict[str, dict] = {}
+    for batch in data.get("batches", []):
+        for cop_entry in batch.get("by_cop", []):
+            if cop_entry.get("cop") == cop_name:
+                label = cop_entry.get("style_label", batch.get("name", ""))
+                baselines[label] = {
+                    "fp": cop_entry.get("fp", 0),
+                    "fn": cop_entry.get("fn", 0),
+                    "matches": cop_entry.get("matches", 0),
+                }
+    return baselines
+
+
 def run_variant_checks(
     *,
     cop_name: str,
@@ -749,6 +782,7 @@ def run_variant_checks(
     run_rubocop_fn=None,
     binary: str | None = None,
     timeout: int = 120,
+    variant_baselines: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Run nitrocop + rubocop with each variant config on already-cloned repos.
 
@@ -758,12 +792,19 @@ def run_variant_checks(
     *run_nitrocop_fn* and *run_rubocop_fn* are injectable for testing.
     When None, they default to the real corpus runners.
 
+    *variant_baselines* is a dict from ``load_variant_baselines()`` mapping
+    style_label -> {fp, fn, matches}. When present, each result includes
+    the oracle baseline for delta computation.
+
     Returns list of dicts: [{style_label, batch_config, nitrocop_total,
-    rubocop_total, fp, fn, rubocop_errors}, ...].
+    rubocop_total, fp, fn, rubocop_errors, baseline_fp, baseline_fn}, ...].
     """
     variants = variant_styles_for_cop(cop_name, batches_dir)
     if not variants:
         return []
+
+    if variant_baselines is None:
+        variant_baselines = {}
 
     results = []
     for variant in variants:
@@ -798,6 +839,7 @@ def run_variant_checks(
             else:
                 rc_errors += 1
 
+        baseline = variant_baselines.get(label, {})
         results.append({
             "style_label": label,
             "batch_config": config,
@@ -806,6 +848,8 @@ def run_variant_checks(
             "fp": max(0, nc_total - rc_total),
             "fn": max(0, rc_total - nc_total),
             "rubocop_errors": rc_errors,
+            "baseline_fp": baseline.get("fp", 0),
+            "baseline_fn": baseline.get("fn", 0),
         })
 
     return results
@@ -946,10 +990,11 @@ def main():
               file=sys.stderr)
 
     # Load corpus results
+    corpus_run_id = None
     if args.input:
         input_path = args.input
     else:
-        input_path = download_corpus_results()
+        input_path, corpus_run_id = download_corpus_results()
 
     data = json.loads(input_path.read_text())
     by_cop = data["by_cop"]
@@ -1420,6 +1465,9 @@ def main():
                 from gen_variant_batches import generate_batches
                 generate_batches(Path(variant_batches))
 
+            # Load variant baselines from the oracle for delta computation
+            vb = load_variant_baselines(args.cop, corpus_run_id)
+
             # Collect all cloned repo directories
             corpus_dir = _CLONE_DIR
             repo_dirs = sorted(str(d) for d in corpus_dir.iterdir() if d.is_dir())
@@ -1432,20 +1480,23 @@ def main():
                     repo_dirs=repo_dirs,
                     batches_dir=variant_batches,
                     binary=str(NITROCOP_BIN),
+                    variant_baselines=vb,
                 )
 
                 if variant_results:
                     print()
                     print("  Variant results:")
-                    print(f"  {'Style':<30} {'NC':>8} {'RC':>8} {'FP':>6} {'FN':>6}")
-                    print(f"  {'-'*30} {'-'*8} {'-'*8} {'-'*6} {'-'*6}")
+                    print(f"  {'Style':<30} {'NC':>8} {'RC':>8} {'FP':>6} {'FN':>6}  {'BL FP':>6} {'BL FN':>6}")
+                    print(f"  {'-'*30} {'-'*8} {'-'*8} {'-'*6} {'-'*6}  {'-'*6} {'-'*6}")
                     for vr in variant_results:
                         print(
                             f"  {vr['style_label']:<30} "
                             f"{vr['nitrocop_total']:>8,} "
                             f"{vr['rubocop_total']:>8,} "
                             f"{vr['fp']:>6,} "
-                            f"{vr['fn']:>6,}"
+                            f"{vr['fn']:>6,}  "
+                            f"{vr['baseline_fp']:>6,} "
+                            f"{vr['baseline_fn']:>6,}"
                         )
                         # Emit SUMMARY lines for CI PR comment (variant rows)
                         v_result = "pass"
@@ -1453,7 +1504,8 @@ def main():
                             v_result = "error"
                         print(
                             f"SUMMARY|{args.cop} ({vr['style_label']})"
-                            f"|0|0|{vr['fp']}|{vr['fn']}|{v_result}|0|0"
+                            f"|{vr['baseline_fp']}|{vr['baseline_fn']}"
+                            f"|{vr['fp']}|{vr['fn']}|{v_result}|0|0"
                         )
                     print()
                 else:
