@@ -74,6 +74,13 @@ require 'c'
 require 'a' until foo
 require 'b'
 
+# Blank-line-separated groups should not compare across sections
+require 'b'
+require 'd'
+
+require 'a'
+require 'c'
+
 # __END__ — data section, not code
 require 'a'
 require 'b'
