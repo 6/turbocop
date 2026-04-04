@@ -105,9 +105,9 @@ impl Cop for UnusedIgnoredColumns {
                 return;
             }
 
-            if !call
+            if call
                 .receiver()
-                .is_some_and(|receiver| receiver.as_self_node().is_some())
+                .is_none_or(|receiver| receiver.as_self_node().is_none())
             {
                 return;
             }
@@ -133,9 +133,9 @@ impl Cop for UnusedIgnoredColumns {
                 return;
             }
 
-            if !op_write
+            if op_write
                 .receiver()
-                .is_some_and(|receiver| receiver.as_self_node().is_some())
+                .is_none_or(|receiver| receiver.as_self_node().is_none())
             {
                 return;
             }
