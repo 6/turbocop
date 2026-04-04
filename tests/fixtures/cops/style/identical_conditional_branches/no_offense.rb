@@ -239,3 +239,22 @@ else
   response = make_response
   response.body
 end
+
+# if/else with different backtick commands
+if app == ''
+  app_response = `#{adb_path} shell dumpsys`
+else
+  app_response = `#{adb_path} shell dumpsys package #{app}`
+end
+
+# if/else with different method definitions
+if (Rails::VERSION::MAJOR == 5) && (Rails::VERSION::MINOR == 0)
+  def generate_routing_code(action)
+    # https://github.com/rails/rails/commit/d2be2a9166
+    "  get '#{file_name}/#{action}'"
+  end
+else
+  def generate_routing_code(action)
+    "get '#{file_name}/#{action}'"
+  end
+end
