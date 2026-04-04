@@ -621,7 +621,9 @@ jobs:
 
       - name: Diff style-variant results
         run: |
-          # Process variant batches in parallel (each is independent)
+          # Process variant batches in parallel (each is independent).
+          # Write JSON only (no .md) — the final markdown is generated
+          # by gen_corpus_md.py from the merged results.
           COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
           PIDS=()
           for NC_DIR in all-results/results/variant-nitrocop-variant_batch_*; do
@@ -638,11 +640,10 @@ jobs:
               --rubocop-dir "$RC_DIR" \
               --manifest bench/corpus/manifest.jsonl \
               --output-json "style-variant-${BATCH_NAME}.json" \
-              --output-md "style-variant-${BATCH_NAME}.md" \
+              --output-md /dev/null \
               ${COP_LIST:+--cop-list "$COP_LIST"} &
             PIDS+=($!)
           done
-          # Wait for all diffs to complete; don't fail if individual batches error
           for pid in "${PIDS[@]}"; do
             wait "$pid" || true
           done
@@ -671,22 +672,17 @@ jobs:
 
       - name: Regenerate report with variant data
         run: |
+          # Lightweight: reads the already-computed corpus-results.json
+          # (with IG merge + variant patches applied) and generates MD.
+          # Avoids re-parsing 11K+ raw result files.
+          VARIANT_ARG=""
           if [ -f style-variant-results.json ]; then
-            COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
-            CONTEXT_DIR=""
-            if [ -d "all-results/results/context" ]; then
-              CONTEXT_DIR="--context-dir all-results/results/context"
-            fi
-            python3 bench/corpus/diff_results.py \
-              --nitrocop-dir all-results/results/nitrocop \
-              --rubocop-dir all-results/results/rubocop \
-              --manifest bench/corpus/manifest.jsonl \
-              --output-json /dev/null \
-              --output-md corpus-results.md \
-              ${COP_LIST:+--cop-list "$COP_LIST"} \
-              $CONTEXT_DIR \
-              --style-variant-results style-variant-results.json
+            VARIANT_ARG="--style-variant-results style-variant-results.json"
           fi
+          python3 bench/corpus/gen_corpus_md.py \
+            --input corpus-results.json \
+            --output corpus-results.md \
+            $VARIANT_ARG
 
       - name: Generate tiers.json
         run: |
