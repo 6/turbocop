@@ -881,6 +881,75 @@ def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
     assert any(call[0] == "close" and call[1] == 12 for call in calls)
 
 
+# ── variant integration tests ──
+
+
+def test_render_issue_body_with_variant_divergence():
+    """Issue body includes variant table when cop has both default and variant divergence."""
+    body = gct.render_issue_body(
+        "Style/Foo",
+        {"fp": 5, "fn": 3, "matches": 100},
+        repo="test/repo",
+        difficulty="easy",
+        state_label="state:backlog",
+        open_pr=None,
+        corpus_kind="corpus",
+        run_id="12345",
+        head_sha="abc",
+        variant_entries=[
+            {"style_label": "comma", "matches": 80, "fp": 10, "fn": 2},
+            {"style_label": "consistent", "matches": 60, "fp": 0, "fn": 0},
+        ],
+    )
+    assert "## Style Variant Divergence" in body
+    assert "| comma | 80 | 10 | 2 |" in body
+    # consistent has 0 FP+FN, should not appear
+    assert "consistent" not in body
+    assert "Additional divergence under non-default styles:" in body
+
+
+def test_render_issue_body_variant_only_divergence():
+    """When default is perfect but variants diverge, body says so."""
+    body = gct.render_issue_body(
+        "Style/Bar",
+        {"fp": 0, "fn": 0, "matches": 50},
+        repo="test/repo",
+        difficulty="easy",
+        state_label="state:backlog",
+        open_pr=None,
+        corpus_kind="corpus",
+        run_id=None,
+        head_sha=None,
+        variant_entries=[
+            {"style_label": "bar", "matches": 30, "fp": 5, "fn": 3},
+        ],
+    )
+    assert "Default config is perfect" in body
+    assert "| bar | 30 | 5 | 3 |" in body
+
+
+def test_render_issue_body_no_variants():
+    """Without variant data, no variant section appears."""
+    body = gct.render_issue_body(
+        "Style/Baz",
+        {"fp": 2, "fn": 1, "matches": 100},
+        repo="test/repo",
+        difficulty="easy",
+        state_label="state:backlog",
+        open_pr=None,
+        corpus_kind="corpus",
+        run_id=None,
+        head_sha=None,
+    )
+    assert "Style Variant Divergence" not in body
+
+
+def test_load_variant_data_for_cop_no_data():
+    """Returns empty list when no variant data is available."""
+    result = gct.load_variant_data_for_cop("Style/NonExistent", run_id=None)
+    assert result == []
+
+
 if __name__ == "__main__":
     test_pascal_to_snake()
     test_parse_cop_name()
@@ -913,4 +982,8 @@ if __name__ == "__main__":
     test_collect_attempts_includes_nofix_findings()
     test_collect_attempts_empty_when_no_prs_or_findings()
     test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue()
+    test_render_issue_body_with_variant_divergence()
+    test_render_issue_body_variant_only_divergence()
+    test_render_issue_body_no_variants()
+    test_load_variant_data_for_cop_no_data()
     print("All tests passed.")
