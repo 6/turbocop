@@ -25,6 +25,12 @@ use crate::parse::source::SourceFile;
 /// - Operator methods (`+`, `-`, `<<`, `==`, etc.) called with dot syntax
 ///   (`self.+(other)`, `self.<<(item)`) are not flagged, matching RuboCop's
 ///   `operator_method?` check.
+/// - Explicit call syntax `self.(...)` is allowed. Prism exposes it as a
+///   `CallNode` named `call` whose opening `(` starts immediately after the
+///   dot, so it must be distinguished from ordinary `self.call(...)`.
+/// - `self::foo(...)` is checked the same as `self.foo(...)`, but `pp` is not a
+///   Kernel-method exemption. RuboCop flags `self.pp(...)` while still allowing
+///   real Kernel methods like `self.open(...)` and `self.printf(...)`.
 /// - Scope boundaries (def, class, module) prevent local variables from leaking
 ///   across them. A lambda param `token` at class body level does not suppress
 ///   detection of `self.token` inside a method definition. Blocks within a def
@@ -82,7 +88,6 @@ const KERNEL_METHODS: &[&[u8]] = &[
     b"puts",
     b"print",
     b"p",
-    b"pp",
     b"warn",
     b"fail",
     b"sleep",
@@ -287,6 +292,19 @@ impl RedundantSelfVisitor<'_> {
             parent_scope.extend(current_scope);
         }
     }
+
+    fn is_explicit_call_syntax(
+        &self,
+        node: &ruby_prism::CallNode<'_>,
+        call_op: ruby_prism::Location<'_>,
+        name_bytes: &[u8],
+    ) -> bool {
+        name_bytes == b"call"
+            && call_op.as_slice() == b"."
+            && node
+                .opening_loc()
+                .is_some_and(|opening| opening.start_offset() == call_op.end_offset())
+    }
 }
 
 /// Prescan visitor for conditional nodes (`if`/`unless`/`while`/`until`).
@@ -382,7 +400,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         if let Some(receiver) = node.receiver() {
             if receiver.as_self_node().is_some() {
                 if let Some(call_op) = node.call_operator_loc() {
-                    if call_op.as_slice() == b"." {
+                    if matches!(call_op.as_slice(), b"." | b"::") {
                         let method_name = node.name();
                         let name_bytes = method_name.as_slice();
 
@@ -393,7 +411,8 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                             && name_bytes != b">="
                             && name_bytes != b"===";
 
-                        if !is_setter
+                        if !self.is_explicit_call_syntax(node, call_op, name_bytes)
+                            && !is_setter
                             && name_bytes != b"[]"
                             && name_bytes != b"[]="
                             && !method_identifier_predicates::is_operator_method(name_bytes)

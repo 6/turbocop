@@ -103,3 +103,21 @@ class ModifierIfDef
     ^^^^ Style/RedundantSelf: Redundant `self` detected.
   end
 end
+
+self.pp(io, value, indent)
+^ Style/RedundantSelf: Redundant `self` detected.
+
+self.pp("inspect")
+^ Style/RedundantSelf: Redundant `self` detected.
+
+self::process_api_call "user", id.to_s
+^ Style/RedundantSelf: Redundant `self` detected.
+
+self::process_api_call "project", id_or_slug.to_s
+^ Style/RedundantSelf: Redundant `self` detected.
+
+self::process_api_call "projects", "advanced", search_terms, page, category_id, state
+^ Style/RedundantSelf: Redundant `self` detected.
+
+self::process_api_call "projects", "ending-soon", "", page
+^ Style/RedundantSelf: Redundant `self` detected.
