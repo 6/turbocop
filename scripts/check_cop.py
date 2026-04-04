@@ -37,6 +37,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "bench" / "corpus"))
 from run_nitrocop import run_nitrocop as _run_corpus_nitrocop  # noqa: E402, I001
 from clone_repos import clone_repos as _clone_repos, load_manifest as _load_manifest_from_file  # noqa: E402, I001
 from clone_repos import repo_head_sha  # noqa: E402, I001
+from run_variant_batches import parse_batch_style_map  # noqa: E402, I001
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
 # Overridden to temp dir when --clone is used (see main())
 _CLONE_DIR: Path | None = None
@@ -97,10 +98,13 @@ def is_include_gated_cop(cop_name: str) -> bool:
     return False
 
 
-def download_corpus_results() -> Path:
-    """Download corpus-results.json from the latest successful CI run."""
-    path, _run_id, _sha = _download_corpus()
-    return path
+def download_corpus_results() -> tuple[Path, int]:
+    """Download corpus-results.json from the latest successful CI run.
+
+    Returns (path, run_id).
+    """
+    path, run_id, _sha = _download_corpus()
+    return path, run_id
 
 
 def ensure_binary():
@@ -707,6 +711,183 @@ def spot_check_examples(cop_name: str, data: dict) -> tuple[int, int, int, int, 
     return fp_remain, fp_resolved, fn_remain, fn_resolved, fp_unchecked, fn_unchecked
 
 
+VARIANT_BATCHES_DIR = PROJECT_ROOT / "bench" / "corpus" / "variant_batches"
+
+
+def variant_styles_for_cop(
+    cop_name: str,
+    batches_dir: str | None = None,
+) -> list[dict]:
+    """Discover which variant batches include a given cop.
+
+    Returns a list of dicts: [{batch_config, style_label}, ...] for each
+    batch that overrides the given cop. Empty list if the cop has no
+    variant overrides or the batches directory doesn't exist.
+    """
+    if batches_dir is None:
+        batches_dir = str(VARIANT_BATCHES_DIR)
+    bd = Path(batches_dir)
+    if not bd.exists():
+        return []
+
+    style_map = parse_batch_style_map(batches_dir)
+    result = []
+    for batch_name in sorted(style_map):
+        cop_styles = style_map[batch_name]
+        if cop_name in cop_styles:
+            batch_config = str(bd / f"{batch_name}.yml")
+            result.append({
+                "batch_config": batch_config,
+                "style_label": cop_styles[cop_name],
+            })
+    return result
+
+
+def load_variant_baselines(
+    cop_name: str, run_id: int | None,
+) -> dict[str, dict]:
+    """Load per-style baseline FP/FN from the oracle's style-variant-results.json.
+
+    Returns {style_label: {fp, fn, matches}} or empty dict if unavailable.
+    """
+    if run_id is None:
+        return {}
+    from shared.corpus_artifacts import get_variant_results_path
+    path = get_variant_results_path(run_id)
+    if not path:
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    baselines: dict[str, dict] = {}
+    for batch in data.get("batches", []):
+        for cop_entry in batch.get("by_cop", []):
+            if cop_entry.get("cop") == cop_name:
+                label = cop_entry.get("style_label", batch.get("name", ""))
+                baselines[label] = {
+                    "fp": cop_entry.get("fp", 0),
+                    "fn": cop_entry.get("fn", 0),
+                    "matches": cop_entry.get("matches", 0),
+                }
+    return baselines
+
+
+def run_variant_checks(
+    *,
+    cop_name: str,
+    repo_dirs: list[str],
+    batches_dir: str | None = None,
+    run_nitrocop_fn=None,
+    run_rubocop_fn=None,
+    binary: str | None = None,
+    timeout: int = 120,
+    variant_baselines: dict[str, dict] | None = None,
+) -> list[dict]:
+    """Run nitrocop + rubocop with each variant config on already-cloned repos.
+
+    For each variant batch that overrides *cop_name*, runs both tools with
+    ``--only <cop>`` and the batch config, then compares aggregate counts.
+
+    *run_nitrocop_fn* and *run_rubocop_fn* are injectable for testing.
+    When None, they default to the real corpus runners.
+
+    *variant_baselines* is a dict from ``load_variant_baselines()`` mapping
+    style_label -> {fp, fn, matches}. When present, each result includes
+    the oracle baseline for delta computation.
+
+    Returns list of dicts: [{style_label, batch_config, nitrocop_total,
+    rubocop_total, fp, fn, rubocop_errors, baseline_fp, baseline_fn}, ...].
+    """
+    variants = variant_styles_for_cop(cop_name, batches_dir)
+    if not variants:
+        return []
+
+    if variant_baselines is None:
+        variant_baselines = {}
+
+    results = []
+    for variant in variants:
+        config = variant["batch_config"]
+        label = variant["style_label"]
+        nc_total = 0
+        rc_total = 0
+        rc_errors = 0
+
+        for repo_dir in repo_dirs:
+            if run_nitrocop_fn:
+                nc_result = run_nitrocop_fn(
+                    repo_dir, cop=cop_name, binary=binary,
+                    timeout=timeout, config_override=config)
+            else:
+                nc_result = _run_corpus_nitrocop(
+                    repo_dir, cop=cop_name, binary=str(NITROCOP_BIN),
+                    timeout=timeout, config_override=config)
+            nc_count = nc_result.get("count", 0)
+            if nc_count >= 0:
+                nc_total += nc_count
+
+            if run_rubocop_fn:
+                rc_result = run_rubocop_fn(
+                    repo_dir, cop=cop_name, config=config, timeout=timeout)
+            else:
+                rc_result = _run_rubocop_for_variant(
+                    repo_dir, cop=cop_name, config=config, timeout=timeout)
+            rc_count = rc_result.get("count", 0)
+            if rc_count >= 0:
+                rc_total += rc_count
+            else:
+                rc_errors += 1
+
+        baseline = variant_baselines.get(label, {})
+        results.append({
+            "style_label": label,
+            "batch_config": config,
+            "nitrocop_total": nc_total,
+            "rubocop_total": rc_total,
+            "fp": max(0, nc_total - rc_total),
+            "fn": max(0, rc_total - nc_total),
+            "rubocop_errors": rc_errors,
+            "baseline_fp": baseline.get("fp", 0),
+            "baseline_fn": baseline.get("fn", 0),
+        })
+
+    return results
+
+
+def _run_rubocop_for_variant(
+    repo_dir: str, *, cop: str, config: str, timeout: int = 120,
+) -> dict:
+    """Run rubocop with --only <cop> --config <config> on a repo.
+
+    Returns {"count": N} where N is the offense count, or {"count": -1} on error.
+    """
+    from run_nitrocop import build_env
+    RESCUE_FILE = str(PROJECT_ROOT / "bench" / "corpus" / "rescue_parser_crashes.rb")
+    env = build_env(repo_dir)
+    cmd = [
+        "bundle", "exec", "rubocop",
+        "--require", RESCUE_FILE,
+        "--config", config,
+        "--only", cop,
+        "--format", "json",
+        "--force-exclusion",
+        "--cache", "false",
+        repo_dir,
+    ]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        data = json.loads(result.stdout)
+        count = sum(
+            len(f.get("offenses", []))
+            for f in data.get("files", [])
+        )
+        return {"count": count}
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError):
+        return {"count": -1}
+
+
 def generate_style_override_config(cop_name: str, param: str, value: str) -> str:
     """Generate a temporary config file that overrides a single style parameter.
 
@@ -760,6 +941,12 @@ def main():
                         help="Override a single cop config parameter for both nitrocop "
                              "and rubocop. E.g., --style EnforcedStyleForMultiline=comma. "
                              "Generates a temporary config inheriting from the baseline.")
+    parser.add_argument("--check-variants", action="store_true",
+                        help="After default check, also run variant style checks using "
+                             "generated batch configs. Reports per-variant FP/FN deltas.")
+    parser.add_argument("--variant-batches-dir", type=str, default=None,
+                        help="Directory containing variant_batch_*.yml configs. "
+                             "If not specified, generates them into a temp directory.")
     args = parser.parse_args()
 
     # Declare all globals used in this function up front (Python requires
@@ -803,10 +990,11 @@ def main():
               file=sys.stderr)
 
     # Load corpus results
+    corpus_run_id = None
     if args.input:
         input_path = args.input
     else:
-        input_path = download_corpus_results()
+        input_path, corpus_run_id = download_corpus_results()
 
     data = json.loads(input_path.read_text())
     by_cop = data["by_cop"]
@@ -1264,7 +1452,66 @@ def main():
                       f"value or verify_cop_locations.py for ground truth.")
             print()
 
-        print("PASS: no per-repo regressions vs baseline")
+        print("PASS: no per-repo regressions vs baseline (default config)")
+
+        # ── Variant style checks ──
+        if args.check_variants and _CLONE_DIR is not None:
+            # Generate variant batch configs if not provided
+            variant_batches = args.variant_batches_dir
+            if not variant_batches:
+                import tempfile
+                variant_batches = tempfile.mkdtemp(prefix="variant_batches_")
+                sys.path.insert(0, str(PROJECT_ROOT / "bench" / "corpus"))
+                from gen_variant_batches import generate_batches
+                generate_batches(Path(variant_batches))
+
+            # Load variant baselines from the oracle for delta computation
+            vb = load_variant_baselines(args.cop, corpus_run_id)
+
+            # Collect all cloned repo directories
+            corpus_dir = _CLONE_DIR
+            repo_dirs = sorted(str(d) for d in corpus_dir.iterdir() if d.is_dir())
+
+            if repo_dirs:
+                print()
+                print(f"Variant checks: {args.cop} across {len(repo_dirs)} repos")
+                variant_results = run_variant_checks(
+                    cop_name=args.cop,
+                    repo_dirs=repo_dirs,
+                    batches_dir=variant_batches,
+                    binary=str(NITROCOP_BIN),
+                    variant_baselines=vb,
+                )
+
+                if variant_results:
+                    print()
+                    print("  Variant results:")
+                    print(f"  {'Style':<30} {'NC':>8} {'RC':>8} {'FP':>6} {'FN':>6}  {'BL FP':>6} {'BL FN':>6}")
+                    print(f"  {'-'*30} {'-'*8} {'-'*8} {'-'*6} {'-'*6}  {'-'*6} {'-'*6}")
+                    for vr in variant_results:
+                        print(
+                            f"  {vr['style_label']:<30} "
+                            f"{vr['nitrocop_total']:>8,} "
+                            f"{vr['rubocop_total']:>8,} "
+                            f"{vr['fp']:>6,} "
+                            f"{vr['fn']:>6,}  "
+                            f"{vr['baseline_fp']:>6,} "
+                            f"{vr['baseline_fn']:>6,}"
+                        )
+                        # Emit SUMMARY lines for CI PR comment (variant rows)
+                        v_result = "pass"
+                        if vr["rubocop_errors"] > 0:
+                            v_result = "error"
+                        print(
+                            f"SUMMARY|{args.cop} ({vr['style_label']})"
+                            f"|{vr['baseline_fp']}|{vr['baseline_fn']}"
+                            f"|{vr['fp']}|{vr['fn']}|{v_result}|0|0"
+                        )
+                    print()
+                else:
+                    print(f"  No variant overrides for {args.cop}")
+                    print()
+
         sys.exit(0)
 
     # Per-repo gate should have handled this — if we reach here, something is wrong

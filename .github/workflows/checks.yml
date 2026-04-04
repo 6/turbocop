@@ -200,7 +200,7 @@ jobs:
             echo "=============================="
             OUTPUT=$(python3 scripts/check_cop.py "$cop" --verbose --rerun --clone \
                  --shard-index ${{ matrix.shard }} --total-shards 12 \
-                 --allow-net-improvement 2>&1) || true
+                 --allow-net-improvement --check-variants 2>&1) || true
             echo "$OUTPUT"
             # Extract SUMMARY line and save for gate job
             echo "$OUTPUT" | grep '^SUMMARY|' | sed 's/^SUMMARY|//' \
