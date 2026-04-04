@@ -1,10 +1,27 @@
-use crate::cop::shared::node_type::{CALL_NODE, FALSE_NODE, SYMBOL_NODE};
-use crate::cop::shared::util::has_keyword_arg;
+use crate::cop::shared::method_dispatch_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{keyword_arg_pair_start_offset, keyword_arg_value};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Checks `add_column`, `add_reference`, and `change_table` column additions
+/// for `null: false` without a real default value.
+///
+/// Corpus investigation (2026-04-04):
+/// - Fixed FNs for `add_reference` and `change_table` body calls like
+///   `t.string`, `t.references`, and `t.integer`, including legacy hash-rocket
+///   option hashes.
+/// - Fixed multiline `add_column`/`change_table` location mismatches by
+///   reporting on the `null` pair instead of the call start, which removes the
+///   paired Coursemology FP/FN cases.
+/// - Fixed the malformed `add_column :table, :column, :null => false` FP by
+///   requiring RuboCop's 3 positional arguments plus an options hash.
+/// - Matched RuboCop's `default: nil` behavior: it still counts as missing a
+///   default and remains an offense.
 pub struct NotNullColumn;
+
+const MSG: &str = "Do not add a NOT NULL column without a default value.";
 
 impl Cop for NotNullColumn {
     fn name(&self) -> &'static str {
@@ -20,7 +37,7 @@ impl Cop for NotNullColumn {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FALSE_NODE, SYMBOL_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -32,57 +49,223 @@ impl Cop for NotNullColumn {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let database = config.get_str("Database", "");
-
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
         };
+        let database_is_mysql = config.get_str("Database", "") == "mysql";
 
-        if call.name().as_slice() != b"add_column" {
-            return;
-        }
-
-        // Check for null: false
-        let null_val = match crate::cop::shared::util::keyword_arg_value(&call, b"null") {
-            Some(v) => v,
-            None => return,
+        let offense_offset = if method_dispatch_predicates::is_command(&call, b"add_column") {
+            add_column_offense_offset(&call, database_is_mysql)
+        } else if method_dispatch_predicates::is_command(&call, b"add_reference") {
+            add_reference_offense_offset(&call)
+        } else {
+            None
         };
 
-        // Check if null: false
-        if null_val.as_false_node().is_none() {
-            return;
+        if let Some(offset) = offense_offset {
+            push_diagnostic(self, source, diagnostics, offset);
         }
 
-        // Check if default: is present
-        if has_keyword_arg(&call, b"default") {
-            return;
+        if method_dispatch_predicates::is_command(&call, b"change_table") {
+            check_change_table(self, source, &call, database_is_mysql, diagnostics);
         }
-
-        // If Database is mysql, skip TEXT columns (TEXT can't have default in MySQL)
-        if database == "mysql" {
-            if let Some(args) = call.arguments() {
-                let arg_list: Vec<_> = args.arguments().iter().collect();
-                // add_column :table, :column, :type — type is 3rd positional arg
-                if arg_list.len() >= 3 {
-                    if let Some(sym) = arg_list[2].as_symbol_node() {
-                        if sym.unescaped() == b"text" {
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Do not add a NOT NULL column without a default value.".to_string(),
-        ));
     }
+}
+
+fn push_diagnostic(
+    cop: &NotNullColumn,
+    source: &SourceFile,
+    diagnostics: &mut Vec<Diagnostic>,
+    offset: usize,
+) {
+    let (line, column) = source.offset_to_line_col(offset);
+    diagnostics.push(cop.diagnostic(source, line, column, MSG.to_string()));
+}
+
+fn add_column_offense_offset(
+    call: &ruby_prism::CallNode<'_>,
+    database_is_mysql: bool,
+) -> Option<usize> {
+    let args = call.arguments()?;
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+
+    // RuboCop requires `add_column(table, column, type, options)`.
+    if arg_list.len() < 4 {
+        return None;
+    }
+    if skip_typed_call(&arg_list[2], database_is_mysql) {
+        return None;
+    }
+
+    null_offense_offset(call)
+}
+
+fn add_reference_offense_offset(call: &ruby_prism::CallNode<'_>) -> Option<usize> {
+    let args = call.arguments()?;
+    if args.arguments().len() < 3 {
+        return None;
+    }
+
+    null_offense_offset(call)
+}
+
+fn check_change_table(
+    cop: &NotNullColumn,
+    source: &SourceFile,
+    call: &ruby_prism::CallNode<'_>,
+    database_is_mysql: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some((table_var, body)) = change_table_block_parts(call) else {
+        return;
+    };
+
+    if let Some(statements) = body.as_statements_node() {
+        for stmt in statements.body().iter() {
+            push_change_table_child_if_offense(
+                cop,
+                source,
+                diagnostics,
+                &table_var,
+                database_is_mysql,
+                &stmt,
+            );
+        }
+        return;
+    }
+
+    push_change_table_child_if_offense(
+        cop,
+        source,
+        diagnostics,
+        &table_var,
+        database_is_mysql,
+        &body,
+    );
+}
+
+fn push_change_table_child_if_offense(
+    cop: &NotNullColumn,
+    source: &SourceFile,
+    diagnostics: &mut Vec<Diagnostic>,
+    table_var: &[u8],
+    database_is_mysql: bool,
+    node: &ruby_prism::Node<'_>,
+) {
+    let Some(call) = node.as_call_node() else {
+        return;
+    };
+    let Some(offset) = change_table_child_offense_offset(&call, table_var, database_is_mysql)
+    else {
+        return;
+    };
+
+    push_diagnostic(cop, source, diagnostics, offset);
+}
+
+fn change_table_block_parts<'a>(
+    call: &ruby_prism::CallNode<'a>,
+) -> Option<(Vec<u8>, ruby_prism::Node<'a>)> {
+    let block = call.block()?.as_block_node()?;
+    let body = block.body()?;
+
+    let block_params = block.parameters()?.as_block_parameters_node()?;
+    let parameters = block_params.parameters()?;
+    let requireds = parameters.requireds();
+
+    if requireds.len() != 1
+        || !parameters.optionals().is_empty()
+        || parameters.rest().is_some()
+        || !parameters.posts().is_empty()
+        || !parameters.keywords().is_empty()
+        || parameters.keyword_rest().is_some()
+        || parameters.block().is_some()
+    {
+        return None;
+    }
+
+    let param = requireds.iter().next()?.as_required_parameter_node()?;
+    Some((param.name().as_slice().to_vec(), body))
+}
+
+fn change_table_child_offense_offset(
+    call: &ruby_prism::CallNode<'_>,
+    table_var: &[u8],
+    database_is_mysql: bool,
+) -> Option<usize> {
+    if !receiver_matches_local(call, table_var) {
+        return None;
+    }
+
+    let args = call.arguments()?;
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+
+    match call.name().as_slice() {
+        b"column" => {
+            if arg_list.len() < 3 {
+                return None;
+            }
+            if skip_typed_call(&arg_list[1], database_is_mysql) {
+                return None;
+            }
+            null_offense_offset(call)
+        }
+        b"add_reference" => {
+            if arg_list.len() < 3 {
+                return None;
+            }
+            null_offense_offset(call)
+        }
+        method_name => {
+            // RuboCop's shortcut matcher only covers `t.string :name, ...`-style
+            // calls with a single positional column arg plus the options hash.
+            if arg_list.len() != 2 {
+                return None;
+            }
+            if skip_shortcut_type(method_name, database_is_mysql) {
+                return None;
+            }
+            null_offense_offset(call)
+        }
+    }
+}
+
+fn receiver_matches_local(call: &ruby_prism::CallNode<'_>, table_var: &[u8]) -> bool {
+    call.receiver()
+        .and_then(|receiver| receiver.as_local_variable_read_node())
+        .is_some_and(|local| local.name().as_slice() == table_var)
+}
+
+fn skip_typed_call(type_node: &ruby_prism::Node<'_>, database_is_mysql: bool) -> bool {
+    matches_type_name(type_node, b"virtual")
+        || (database_is_mysql && matches_type_name(type_node, b"text"))
+}
+
+fn matches_type_name(type_node: &ruby_prism::Node<'_>, expected: &[u8]) -> bool {
+    type_node
+        .as_symbol_node()
+        .is_some_and(|symbol| symbol.unescaped() == expected)
+        || type_node
+            .as_string_node()
+            .is_some_and(|string| string.unescaped() == expected)
+}
+
+fn skip_shortcut_type(method_name: &[u8], database_is_mysql: bool) -> bool {
+    method_name == b"virtual" || (database_is_mysql && method_name == b"text")
+}
+
+fn null_offense_offset(call: &ruby_prism::CallNode<'_>) -> Option<usize> {
+    if has_non_nil_default(call) {
+        return None;
+    }
+
+    keyword_arg_value(call, b"null")?.as_false_node()?;
+    keyword_arg_pair_start_offset(call, b"null")
+}
+
+fn has_non_nil_default(call: &ruby_prism::CallNode<'_>) -> bool {
+    keyword_arg_value(call, b"default").is_some_and(|value| value.as_nil_node().is_none())
 }
 
 #[cfg(test)]
