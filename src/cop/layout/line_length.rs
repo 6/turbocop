@@ -473,7 +473,7 @@ fn uri_range_if_applicable(
     // Our regex also excludes ' and " which Ruby's includes, so we
     // strip those before checking for the ] boundary.
     let extension_text = &line[last_match.end..extended_end];
-    let ext_past_quotes = extension_text.trim_start_matches(|c: char| c == '\'' || c == '"');
+    let ext_past_quotes = extension_text.trim_start_matches(['\'', '"']);
     if ext_past_quotes.starts_with(']') {
         let uri_text = &line[last_match.start..last_match.end];
         if uri_text.contains('#') {
