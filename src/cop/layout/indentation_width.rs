@@ -46,6 +46,21 @@ use crate::parse::source::SourceFile;
 ///   behavior. Config injection reads the sibling cop's `EnforcedStyle` into
 ///   `IndentationStyleEnforced`. Resolved ~62,000 FN from the previous
 ///   unconditional tab skip.
+///
+/// 2026-04-04:
+/// - Fixed def body with rescue/ensure: when a def has rescue/ensure, the body
+///   is an implicit BeginNode. `check_body_indentation` returned empty because
+///   BeginNode is not a StatementsNode. Now checks `begin_node.statements()`
+///   directly. Resolved ~150 FN from previously unchecked def bodies.
+/// - Fixed def base column: was using `end` keyword column as proxy for
+///   `start_of_line` indentation, but RuboCop always uses the keyword line's
+///   indentation (`node.loc.keyword`). Now uses `line_start_column` which
+///   correctly handles `private def foo` (uses private's indent) and misaligned
+///   end keywords.
+/// - Fixed FP from `private :method`, `public :allocate`, etc. in class member
+///   walk. RuboCop's `check_members_for_normal_style` skips ALL access modifier
+///   calls (via `member.access_modifier?`), not just bare ones. Changed to use
+///   `is_any_access_modifier_call` which matches all forms. Resolved ~83 FP.
 pub struct IndentationWidth;
 
 /// Check if a node is a bare access modifier call (for example `private` with no
@@ -55,29 +70,38 @@ fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
         .is_some_and(|call| access_modifier_predicates::is_bare_access_modifier(&call))
 }
 
-/// Check if a node is an access modifier wrapping a def (e.g., `private def foo`).
-/// In Prism, this is a CallNode(private, args=[DefNode]).
-/// RuboCop's `access_modifier?` matches all `private/protected/public/module_function`
-/// calls regardless of args, so it skips `private def foo` in the member walk. But we
-/// must NOT skip `private :method_name` since RuboCop's IndentationWidth checks those.
-fn is_access_modifier_with_def(node: &ruby_prism::Node<'_>) -> bool {
+/// Check if a node is ANY access modifier call (with or without arguments).
+/// Matches RuboCop's `access_modifier?` which includes `private`, `private :method`,
+/// and `private def foo`. Used in the normal-style member walk to skip access modifier
+/// indentation (handled by Layout/AccessModifierIndentation instead).
+fn is_any_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        if !access_modifier_predicates::is_access_modifier_declaration(&call)
-            || call.block().is_some()
-        {
+        if call.receiver().is_some() || call.block().is_some() {
             return false;
         }
-        // Check if the sole argument is a DefNode
-        if let Some(args) = call.arguments() {
-            let mut iter = args.arguments().iter();
-            if let Some(first) = iter.next() {
-                return first.as_def_node().is_some() && iter.next().is_none();
-            }
-        }
-        false
+        access_modifier_predicates::is_access_modifier_name(call.name().as_slice())
     } else {
         false
     }
+}
+
+/// Get the column of the first non-whitespace character on the line containing `offset`.
+/// This gives the "effective indentation level" of the line, used as the base for
+/// `start_of_line` alignment in def bodies (matching RuboCop's behavior of using the
+/// def keyword line's indentation, not the end keyword's position).
+fn line_start_column(source: &SourceFile, offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut line_start = offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    let mut first_non_ws = line_start;
+    while first_non_ws < bytes.len()
+        && (bytes[first_non_ws] == b' ' || bytes[first_non_ws] == b'\t')
+    {
+        first_non_ws += 1;
+    }
+    first_non_ws - line_start
 }
 
 fn body_members(body: ruby_prism::Node<'_>) -> Vec<ruby_prism::Node<'_>> {
@@ -305,11 +329,11 @@ impl IndentationWidth {
         }
 
         for member in &members {
-            // Skip bare access modifiers (e.g., `private`) and access modifiers
-            // wrapping a def (e.g., `private def foo`). RuboCop's member walk
-            // skips both via `access_modifier?`. We do NOT skip `private :symbol`
-            // since RuboCop's IndentationWidth still checks those.
-            if is_access_modifier_call(member) || is_access_modifier_with_def(member) {
+            // Skip ALL access modifier calls (bare, with symbol args, or with def).
+            // RuboCop's `check_members_for_normal_style` does:
+            //   `next if member.send_type? && member.access_modifier?`
+            // Access modifier indentation is handled by Layout/AccessModifierIndentation.
+            if is_any_access_modifier_call(member) {
                 continue;
             }
 
@@ -758,26 +782,36 @@ impl Cop for IndentationWidth {
                 // EnforcedStyleAlignWith: keyword — indent relative to `def` keyword column
                 source.offset_to_line_col(kw_offset).1
             } else {
-                // EnforcedStyleAlignWith: start_of_line (default) — indent relative to the
-                // start of the line, using `end` keyword column as proxy for line-start indent.
-                if let Some(end_loc) = def_node.end_keyword_loc() {
-                    source.offset_to_line_col(end_loc.start_offset()).1
-                } else {
-                    source.offset_to_line_col(kw_offset).1
-                }
+                // EnforcedStyleAlignWith: start_of_line (default) — use the indentation
+                // level of the def keyword's line. RuboCop always uses node.loc.keyword
+                // which equals the line start for regular defs, and for `private def foo`
+                // the def is handled by on_send (ignored by on_def).
+                line_start_column(source, kw_offset)
             };
-            diagnostics.extend(self.check_body_indentation(
-                source,
-                kw_offset,
-                base_col,
-                def_node.body(),
-                options,
-            ));
-            // For `def...rescue...end`, the body is an implicit BeginNode.
-            // Check its rescue/ensure/else clauses.
+
             if let Some(body) = def_node.body() {
                 if let Some(begin_node) = body.as_begin_node() {
+                    // Implicit begin (def with rescue/ensure/else).
+                    // Check the main body statements.
+                    diagnostics.extend(self.check_statements_indentation(
+                        source,
+                        kw_offset,
+                        base_col,
+                        None,
+                        begin_node.statements(),
+                        options,
+                    ));
+                    // Check rescue/ensure/else clauses.
                     self.check_begin_clauses(source, &begin_node, options, diagnostics);
+                } else {
+                    // Regular def body (StatementsNode).
+                    diagnostics.extend(self.check_body_indentation(
+                        source,
+                        kw_offset,
+                        base_col,
+                        Some(body),
+                        options,
+                    ));
                 }
             }
             return;
