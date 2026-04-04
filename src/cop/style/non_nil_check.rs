@@ -7,6 +7,12 @@ use ruby_prism::Visit;
 /// only the final predicate expression itself is exempt, not nested checks
 /// inside a larger `&&`/`rescue` expression, while parenthesized final checks
 /// are still exempt.
+///
+/// When a predicate method body is wrapped in begin/rescue or begin/ensure,
+/// the inner `!= nil` expression is NOT exempt. RuboCop ignores the entire
+/// rescue-wrapped block (not its children), so inner comparisons are still
+/// flagged. Fixed by not unwrapping BeginNode with rescue/ensure clauses in
+/// `last_predicate_expression`.
 pub struct NonNilCheck;
 
 impl Cop for NonNilCheck {
@@ -71,6 +77,12 @@ fn last_predicate_expression<'pr>(node: ruby_prism::Node<'pr>) -> Option<ruby_pr
             .last()
             .and_then(last_predicate_expression)
     } else if let Some(begin) = node.as_begin_node() {
+        // When a begin block has rescue/ensure clauses, RuboCop ignores the
+        // entire block (not its inner statements), so inner != nil calls are
+        // still flagged.  Only unwrap plain begin blocks without rescue/ensure.
+        if begin.rescue_clause().is_some() || begin.ensure_clause().is_some() {
+            return Some(node);
+        }
         begin
             .statements()
             .and_then(|statements| statements.body().iter().last())
