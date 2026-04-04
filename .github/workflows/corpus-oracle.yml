@@ -518,7 +518,7 @@ jobs:
     needs: [oracle-repo, run-synthetic]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Free disk space
         run: |
