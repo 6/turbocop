@@ -24,6 +24,14 @@ def test_generate_batches_creates_files(tmp_path):
     assert "/" in content  # cop names contain /
 
 
+def test_inherit_from_uses_parent_relative_path(tmp_path):
+    """inherit_from must use ../ since configs live in a variant_batches/ subdir."""
+    out = tmp_path / "batches"
+    gen_variant_batches.generate_batches(out)
+    content = (out / "variant_batch_1.yml").read_text()
+    assert "inherit_from: ../baseline_rubocop.yml" in content
+
+
 def test_generate_batches_dry_run(tmp_path, capsys):
     """--dry-run previews without writing."""
     out = tmp_path / "batches"

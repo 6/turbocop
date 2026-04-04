@@ -20,7 +20,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 from corpus_stress import VENDOR_CONFIGS, parse_enforced_styles  # noqa: E402
 
-BASELINE_PATH = "baseline_rubocop.yml"
+# Relative to the variant_batches/ subdirectory where generated configs live.
+# RuboCop resolves inherit_from relative to the config file's directory.
+BASELINE_PATH = "../baseline_rubocop.yml"
 
 
 def generate_batches(output_dir: Path, *, dry_run: bool = False) -> int:
