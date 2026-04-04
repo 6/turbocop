@@ -220,3 +220,17 @@ end
 # keyword param name shadows method in default value
 def plan_event(execution_plan_id: self.execution_plan_id)
 end
+
+# Operator methods called with dot syntax — self is required
+def test_operator_methods
+  self.+(other)
+  self.-(other)
+  self.*(other)
+  self./(other)
+  self.==(other)
+  self.<<(item)
+  self.<=>(other)
+  self.>>(other)
+  self.&(other)
+  self.|(other)
+end
