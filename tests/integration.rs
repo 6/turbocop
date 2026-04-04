@@ -3448,11 +3448,13 @@ fn redundant_disable_running_cop_no_offense_flagged_in_normal_mode() {
 fn no_redundant_disable_for_skip_list_cop_in_normal_mode() {
     // Cops in REDUNDANT_DISABLE_SKIP_COPS have known detection gaps.
     // Even in normal mode, their unused directives should NOT be flagged.
+    // Security/YAMLLoad is a permanent stub (never fires), so it's the
+    // most stable choice — it will always remain on the skip list.
     let dir = temp_dir("redundant_disable_skip_list");
     let file = write_file(
         &dir,
         "test.rb",
-        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/SafeNavigation\n",
+        b"# frozen_string_literal: true\n\nYAML.load(data) # rubocop:disable Security/YAMLLoad\n",
     );
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -4705,12 +4707,12 @@ fn no_redundant_disable_executed_cop_no_offense() {
     // In normal mode (no --only/--except), all cops ran, so the unused
     // directive is correctly flagged as redundant.
     let dir = temp_dir("no_redundant_disable_exec_no_off");
-    // Style/FrozenStringLiteralComment fires on missing frozen_string_literal
-    // but this file HAS it, so no offense. The disable is unused and the cop ran.
+    // Layout/TrailingWhitespace would fire on trailing spaces, but this
+    // file is clean. The disable is unused and the cop ran.
     let file = write_file(
         &dir,
         "test.rb",
-        b"# frozen_string_literal: true\n# rubocop:disable Style/FrozenStringLiteralComment\nx = 1\n# rubocop:enable Style/FrozenStringLiteralComment\n",
+        b"x = 1 # rubocop:disable Layout/TrailingWhitespace\n",
     );
     let config = load_config(None, Some(&dir), None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -4737,9 +4739,7 @@ fn no_redundant_disable_executed_cop_no_offense() {
         redundant
     );
     assert!(
-        redundant[0]
-            .message
-            .contains("Style/FrozenStringLiteralComment"),
+        redundant[0].message.contains("Layout/TrailingWhitespace"),
         "Message should mention the cop: {}",
         redundant[0].message
     );
