@@ -30,3 +30,13 @@ namespace :third do
   desc 'Do y'
   task :y
 end
+
+namespace :with_blockless do
+  task :a
+  namespace :unused
+  ^^^^^^^^^ Rake/DuplicateNamespace: Namespace `with_blockless` is defined at both test.rb (line 31) and test.rb (line 33).
+end
+
+namespace
+namespace
+^^^^^^^^^ Rake/DuplicateNamespace: Namespace `` is defined at both test.rb (line 36) and test.rb (line 37).
