@@ -11,8 +11,8 @@ const MSG: &str = "Use the return of the conditional for variable assignment and
 /// the conditional instead.
 ///
 /// Supports local, instance, class, global variable writes, constant writes,
-/// setter calls (`obj.x =`), index setters (`obj[k] =`), and compound
-/// assignments (`+=`, `&&=`, `||=`).
+/// setter calls (`obj.x =`), index setters (`obj[k] =`), shovel sends
+/// (`obj << value`), and compound assignments (`+=`, `&&=`, `||=`).
 ///
 /// Handles `if/elsif/else` chains (all branches must assign the same target),
 /// `unless/else`, and ternary expressions with assignments.
@@ -28,6 +28,12 @@ const MSG: &str = "Use the return of the conditional for variable assignment and
 /// Some repos disable `Layout/LineLength` via `DisabledByDefault: true`, which
 /// means the oracle was generated without the guard — causing a small FN delta
 /// at HEAD for those repos. This is acceptable in reduce mode.
+///
+/// FN reduction (2026-04-04): a large remaining corpus bucket was `if`/`else`
+/// and `case` branches that both used `<<` on the same receiver, such as
+/// `message << ...` and `this_sig_lines << ...`. Prism represents those as
+/// `CallNode`s, not write nodes, so they needed the same target-key handling
+/// as setter/index assignments.
 pub struct ConditionalAssignment;
 
 impl Cop for ConditionalAssignment {
@@ -463,7 +469,8 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
             lhs_text: format!("{} = ", name),
         });
     }
-    // Setter call: obj.method= value or obj[key]= value
+    // Setter call: obj.method= value or obj[key]= value.
+    // RuboCop also treats shovel sends as assignment-like here.
     if let Some(call) = node.as_call_node() {
         let method = call.name().as_slice();
         // Check []= BEFORE is_setter_method — is_setter_method matches any
@@ -499,6 +506,15 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
             return Some(AssignInfo {
                 key: format!("send:{}.{}", recv_src, method_str),
                 lhs_text: format!("{}.{} = ", recv_src, method_base),
+            });
+        }
+        if method == b"<<" {
+            let recv_src = call.receiver().map_or(String::new(), |r| {
+                String::from_utf8_lossy(r.location().as_slice()).to_string()
+            });
+            return Some(AssignInfo {
+                key: format!("send:{}<<", recv_src),
+                lhs_text: format!("{} << ", recv_src),
             });
         }
     }

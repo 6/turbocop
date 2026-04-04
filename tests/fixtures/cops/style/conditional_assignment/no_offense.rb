@@ -65,3 +65,10 @@ if ActionView::Base.respond_to?(:with_empty_template_cache) && ActionView::Base.
 else
   @apipie_renderer = ActionView::Base.new(base_paths + layouts_paths)
 end
+
+# if/else with shovel operator assigning to different receivers should not be flagged
+if condition
+  out << 1
+else
+  other << 2
+end
