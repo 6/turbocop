@@ -16,6 +16,13 @@ use crate::parse::source::SourceFile;
 /// extensionless `Rakefile` paths. Nitrocop previously flagged those
 /// `Rakefile` tasks and created corpus-only false positives, so this cop
 /// skips files whose basename is exactly `Rakefile`.
+///
+/// RuboCop's `can_insert_desc_to?` only allows `:begin`, `:block`, `:kwbegin`
+/// as parent types. In RuboCop AST, a single-statement rescue/ensure body has
+/// parent `:resbody`/`:ensure` (not allowed), so tasks there are exempt. With
+/// multiple statements, RuboCop wraps them in `:begin` (allowed), so tasks ARE
+/// flagged. We mirror this by overriding `visit_rescue_node`/`visit_ensure_node`
+/// to skip `check_statements` only for single-statement bodies.
 pub struct Desc;
 
 impl Cop for Desc {
@@ -154,6 +161,38 @@ impl<'pr> Visit<'pr> for DescVisitor<'_> {
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
         self.check_statements(node);
         ruby_prism::visit_statements_node(self, node);
+    }
+
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        // In RuboCop AST, a single-statement rescue body has parent :resbody
+        // (not in `can_insert_desc_to?`'s allowed list), so tasks are not flagged.
+        // Multiple statements get wrapped in :begin (allowed), so tasks ARE flagged.
+        // Mirror this: skip check_statements only for single-statement bodies.
+        if let Some(stmts) = node.statements() {
+            if stmts.body().len() == 1 {
+                for child in stmts.body().iter() {
+                    self.visit(&child);
+                }
+            } else {
+                self.visit_statements_node(&stmts);
+            }
+        }
+        if let Some(subsequent) = node.subsequent() {
+            self.visit_rescue_node(&subsequent);
+        }
+    }
+
+    fn visit_ensure_node(&mut self, node: &ruby_prism::EnsureNode<'pr>) {
+        // Same single-statement rule as rescue bodies.
+        if let Some(stmts) = node.statements() {
+            if stmts.body().len() == 1 {
+                for child in stmts.body().iter() {
+                    self.visit(&child);
+                }
+            } else {
+                self.visit_statements_node(&stmts);
+            }
+        }
     }
 }
 
