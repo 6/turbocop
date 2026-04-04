@@ -1,9 +1,9 @@
 x = 1 +
         2
-        ^^^ Layout/MultilineOperationIndentation: Use 2 (not 8) spaces for indentation of a continuation line.
+        ^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.
 z = 5 +
       6
-      ^^^ Layout/MultilineOperationIndentation: Use 2 (not 6) spaces for indentation of a continuation line.
+      ^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.
 w = a &&
          b
          ^^^^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.
@@ -23,3 +23,17 @@ if a &&
   ^ Layout/MultilineOperationIndentation: Align the operands of a condition in an `if` statement spanning multiple lines.
   do_something
 end
+
+# FN: Assignment with chained + continuation at wrong indent
+result = foo("h3") +
+  foo("p1") +
+  ^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.
+  foo("p2")
+  ^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.
+
+# Same-indent chained + in assignment with wrong indent
+result2 = "hello".capitalize +
+  "world" +
+  ^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.
+  "foo"
+  ^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.

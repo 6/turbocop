@@ -14,6 +14,15 @@ use crate::parse::source::SourceFile;
 /// only `left_indent + width` is accepted (not `left_col`); in keyword
 /// conditions with aligned style, alignment with `left_col` or double-width
 /// `kw_expected` are accepted.
+///
+/// Key fix (2026-04-04): CallNode (`+`, `-`, etc.) now delegates to
+/// `check_binary_node` with `accept_left_alignment=true`. This adds
+/// assignment/keyword context awareness (fixing FN where RuboCop requires
+/// alignment but old code accepted wrong indentation), while accepting
+/// same-column alignment as a fallback for operator calls. The fallback
+/// is needed because RuboCop's `argument_in_method_call` (which requires
+/// AST parent traversal) accepts alignment in method-arg and nested-if
+/// contexts that we cannot detect from Prism without parent pointers.
 pub struct MultilineOperationIndentation;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -70,72 +79,14 @@ impl Cop for MultilineOperationIndentation {
                 return;
             }
 
-            let recv_loc = receiver.location();
-            let (recv_start_line, _) = source.offset_to_line_col(recv_loc.start_offset());
-            let (recv_end_line, _) = source.offset_to_line_col(recv_loc.end_offset());
+            // Delegate to shared binary checker with accept_left_alignment=true.
+            // We can't replicate RuboCop's `argument_in_method_call` (requires
+            // AST parent traversal), so we accept same-column alignment for
+            // operator calls to avoid FP in method-arg and nested-if contexts.
             let first_arg = &args[0];
-            let arg_loc = first_arg.location();
-            let (arg_line, arg_col) = source.offset_to_line_col(arg_loc.start_offset());
-
-            // Only check multiline operations: the arg must be on a
-            // different line than where the receiver ENDS (not starts).
-            // For `end + tag.hr`, receiver ends at `end` on the same line as `tag.hr`.
-            if arg_line == recv_end_line {
-                return;
-            }
-
-            let width = config.get_usize("IndentationWidth", 2);
-
-            let recv_line_bytes = source.lines().nth(recv_start_line - 1).unwrap_or(b"");
-            let recv_indent = indentation_of(recv_line_bytes);
-            let expected_indented = recv_indent + width;
-            let expected = match style {
-                "aligned" => {
-                    // Align with the receiver's column
-                    let (_, recv_col) = source.offset_to_line_col(recv_loc.start_offset());
-                    recv_col
-                }
-                _ => expected_indented, // "indented" (default)
-            };
-
-            // RuboCop's `kw_node_with_special_indentation` doubles the
-            // indentation width when the operation is inside a keyword expression
-            // (return, if, while, etc.).
-            let kw_expected = if is_in_keyword_condition(source, recv_start_line) {
-                Some(recv_indent + 2 * width)
-            } else {
-                None
-            };
-
-            let right_line_bytes = source.lines().nth(arg_line - 1).unwrap_or(b"");
-            let line_indent = indentation_of(right_line_bytes);
-
-            // For "aligned" style, RuboCop accepts both aligned and properly
-            // indented forms in non-condition contexts (assignments, method args).
-            let is_ok = if style == "aligned" {
-                arg_col == expected
-                    || arg_col == expected_indented
-                    || line_indent == expected_indented
-                    || arg_col == recv_indent
-                    || kw_expected.is_some_and(|kw| arg_col == kw || line_indent == kw)
-            } else {
-                arg_col == expected
-                    || arg_col == recv_indent
-                    || kw_expected.is_some_and(|kw| arg_col == kw || line_indent == kw)
-            };
-
-            if !is_ok {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    arg_line,
-                    arg_col,
-                    format!(
-                        "Use {} (not {}) spaces for indentation of a continuation line.",
-                        width,
-                        arg_col.saturating_sub(recv_indent)
-                    ),
-                ));
-            }
+            diagnostics
+                .extend(self.check_binary_node(source, &receiver, first_arg, config, style, true));
+            return;
         }
 
         // Check AndNode
@@ -151,6 +102,7 @@ impl Cop for MultilineOperationIndentation {
                 &and_node.right(),
                 config,
                 style,
+                false,
             ));
             return;
         }
@@ -167,6 +119,7 @@ impl Cop for MultilineOperationIndentation {
                 &or_node.right(),
                 config,
                 style,
+                false,
             ));
         }
     }
@@ -377,10 +330,6 @@ fn keyword_context_on_line(
     None
 }
 
-fn is_in_keyword_condition(source: &SourceFile, line: usize) -> bool {
-    keyword_context_on_line(source, line, usize::MAX).is_some()
-}
-
 fn assignment_context(
     source: &SourceFile,
     left_line: usize,
@@ -435,6 +384,7 @@ impl MultilineOperationIndentation {
         right: &ruby_prism::Node<'_>,
         config: &CopConfig,
         style: &str,
+        accept_left_alignment: bool,
     ) -> Vec<Diagnostic> {
         let (left_line, left_col) = source.offset_to_line_col(left.location().start_offset());
         let (left_end_line, _) = source.offset_to_line_col(left.location().end_offset());
@@ -480,6 +430,12 @@ impl MultilineOperationIndentation {
             // chains in hash values or method args), accept operand-aligned
             // continuations when the left operand is offset from the base indent
             // (genuine alignment, not just same-indent-level chains).
+            right_col == expected_indent || right_col == left_col
+        } else if accept_left_alignment {
+            // For operator method calls (+, -, etc.) without AST parent info,
+            // we can't detect RuboCop's `argument_in_method_call` context
+            // (e.g. `raise Exception, "a" +\n"b"` or `+` inside if-as-operand).
+            // Accept same-column alignment as a safe fallback to avoid FP.
             right_col == expected_indent || right_col == left_col
         } else {
             right_col == expected_indent
