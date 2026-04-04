@@ -19,6 +19,11 @@ use ruby_prism::Visit;
 /// older-sibling walk: only direct sibling statements are compared, modifier
 /// `if` / `unless` wrappers participate using their enclosing range for section
 /// checks, and every other sibling acts as a separator.
+///
+/// The `in_same_section` blank-line check now handles CRLF line endings
+/// (`\r\n\r\n`) in addition to LF (`\n\n`). RuboCop's parser normalizes
+/// CRLF to LF before the `include?("\n\n")` check, but Prism preserves
+/// raw bytes, so we must detect both patterns.
 pub struct RequireOrder;
 
 impl Cop for RequireOrder {
@@ -221,11 +226,23 @@ fn in_same_section(source: &SourceFile, previous: &RequireEntry, current: &Requi
     source
         .as_bytes()
         .get(previous.search_start..current.search_end)
-        .is_some_and(|bytes| !bytes.windows(2).any(|window| window == b"\n\n"))
+        .is_some_and(|bytes| {
+            // Check for LF blank line (\n\n) and CRLF blank line (\r\n\r\n which contains \n\r\n)
+            !bytes.windows(2).any(|w| w == b"\n\n") && !bytes.windows(3).any(|w| w == b"\n\r\n")
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RequireOrder, "cops/style/require_order");
+
+    #[test]
+    fn crlf_blank_line_separates_groups() {
+        // CRLF line endings: blank line (\r\n\r\n) should be a section separator
+        crate::testutil::assert_cop_no_offenses_full(
+            &RequireOrder,
+            b"require 'bundler/setup'\r\nrequire 'rubygems'\r\n\r\nrequire 'cloudinary'\r\n",
+        );
+    }
 }
