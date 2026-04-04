@@ -157,3 +157,58 @@ out = class Cor
       ^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
   def blimey; end
 end
+
+class FormatParser::DPXParser
+^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  # Helper docs
+  class Binstr
+    def parse
+    end
+  end
+
+  private_constant :Binstr, :Capture
+end
+
+module Iguvium
+^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
+  GAUSS = 1
+  HORIZONTAL = 2
+
+  # Performs all the work
+  class CV
+    def recognize
+    end
+  end
+
+  private_constant :GAUSS, :HORIZONTAL
+end
+
+module Backports
+  class Ractor
+  ^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+    # Base queue docs
+    class BaseQueue
+      def pop_non_blocking
+      end
+    end
+
+    # Incoming queue docs
+    class IncomingQueue < BaseQueue
+      def reenter
+      end
+    end
+
+    private_constant :BaseQueue, :IncomingQueue
+  end
+end
+
+require 'fiber'
+
+# outer docs
+module RailsERD
+  module Inspectable # @private :nodoc:
+  ^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
+    def inspection_attributes(*attributes)
+    end
+  end
+end

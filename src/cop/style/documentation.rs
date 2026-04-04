@@ -103,6 +103,20 @@ use crate::parse::source::SourceFile;
 /// (5) Replace `rescue_begin_depth` with `rescue_begin_first_child` boolean, only set for the
 /// first statement in a rescue-begin block. (6) Match `:nodoc: all` strictly with required space
 /// before `all` and no trailing content.
+///
+/// ## Investigation findings (2026-04-04, namespace visibility + inline :nodoc:)
+///
+/// **FN root causes:** 1. Namespace detection treated ANY `private_constant` / `public_constant`
+/// call as a constant-visibility declaration. RuboCop only treats the single-name form as
+/// namespace-safe, so multi-argument calls like `private_constant :A, :B` do NOT exempt the
+/// enclosing class/module. That hid offenses for outer containers in format_parser, iguvium,
+/// concurrent-ruby, and backports. 2. Same-line `:nodoc:` matching looked for the substring
+/// anywhere after `#`, so comments like `# @private :nodoc:` incorrectly suppressed offenses.
+/// RuboCop only honors inline comments whose text starts with `:nodoc:`.
+///
+/// **Fix:** only treat receiverless `private_constant` / `public_constant` calls with exactly one
+/// symbol/string argument as namespace-safe, and only honor inline `:nodoc:` when it starts the
+/// comment text after `#`.
 pub struct Documentation;
 
 /// Extract the short (unqualified) name from a constant node.
@@ -203,14 +217,24 @@ fn is_constant_declaration(node: &ruby_prism::Node<'_>) -> bool {
     {
         return true;
     }
-    // private_constant/public_constant calls
-    if let Some(call) = node.as_call_node() {
-        let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
-        if matches!(name, "private_constant" | "public_constant") {
-            return true;
-        }
+    node.as_call_node()
+        .is_some_and(|call| is_constant_visibility_declaration(&call))
+}
+
+fn is_constant_visibility_declaration(call: &ruby_prism::CallNode<'_>) -> bool {
+    let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
+    if !matches!(name, "private_constant" | "public_constant") {
+        return false;
     }
-    false
+    if call.receiver().is_some() {
+        return false;
+    }
+    let Some(args) = call.arguments() else {
+        return false;
+    };
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+    arg_list.len() == 1
+        && (arg_list[0].as_symbol_node().is_some() || arg_list[0].as_string_node().is_some())
 }
 
 /// Check if a node is an include/extend/prepend call with a constant argument.
@@ -259,11 +283,14 @@ fn check_nodoc(
         // Look for #:nodoc: or # :nodoc: (with optional spaces)
         if let Some(pos) = line_str.find("#") {
             let comment = &line_str[pos..];
-            if let Some(np) = comment.find(":nodoc:") {
+            let comment_text = comment
+                .strip_prefix('#')
+                .unwrap_or(comment)
+                .trim_start_matches([' ', '\t']);
+            if let Some(after_nodoc) = comment_text.strip_prefix(":nodoc:") {
                 // RuboCop's regex: /^#\s*:nodoc:\s+all\s*$/
                 // Requires whitespace between :nodoc: and 'all', and 'all' must be
                 // at the end of the comment (no trailing code like `::Plugin`).
-                let after_nodoc = &comment[np + 7..];
                 let has_space = after_nodoc.starts_with(' ') || after_nodoc.starts_with('\t');
                 let has_all = has_space && {
                     let trimmed = after_nodoc.trim_start();
