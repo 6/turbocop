@@ -204,3 +204,12 @@ class U
     alias_method :hidden_alias, :hidden
   end
 end
+
+# outer code after the singleton-class end on the same line as the last def
+# triggers a RuboCop autocorrect crash, so no offense is reported
+class CrashyEndSameLine
+class << self
+def one
+  1
+end end; X = 1
+end
