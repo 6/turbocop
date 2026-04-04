@@ -155,12 +155,6 @@ c = (((c & 0x03ff)) << 10 | (low & 0x03ff)) + 0x10000
 ((1 << 64)).to_s(16),
  ^ Style/RedundantParentheses: Don't use parentheses around a method call.
 
-((1 << 128)).to_s(16), # 0
- ^ Style/RedundantParentheses: Don't use parentheses around a method call.
-
-((1 << 64)).to_s(16),
- ^ Style/RedundantParentheses: Don't use parentheses around a method call.
-
 match(event,
   (on Finished do
   ^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method argument.
