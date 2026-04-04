@@ -21,6 +21,9 @@ bench/synthetic/vendor/
 bench/corpus/repos/
 vendor/corpus/
 __pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
 corpus-results.json
 corpus-results.md
 .check-cop-cache/
