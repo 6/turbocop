@@ -115,6 +115,22 @@ use crate::parse::source::SourceFile;
 ///   returned early even when not flagging, preventing the method argument check from catching
 ///   assignments inside parenthesized calls. Fixed by only falling through when parent is a
 ///   parenthesized call, avoiding FPs on assignments in boolean context like `(x = y) && z`.
+///
+/// ## Investigation findings (2026-04-04)
+///
+/// ### FN root causes fixed:
+/// - **Single-child parent contexts for operator sends:** `[(call + arg)]`, `((1 << 128)).to_s`,
+///   and nested forms like `(((c & mask)) << 10)` were still missed because the
+///   `method_call_with_redundant_parentheses?` approximation only treated top-level control-flow
+///   parents as "singular". RuboCop also flags these when the immediate Prism container has a
+///   single child, so `StatementsNode` and `ArrayNode` now track that shape and feed the
+///   singular parent check.
+/// - **Parenthesized block calls as parenthesized-call arguments:** `match(event, (on Finished do
+///   ... end))` was skipped because Prism exposes it as a `CallNode` with an attached block,
+///   while RuboCop effectively treats that argument like a block expression for
+///   `argument_of_parenthesized_method_call?`. The method-argument exemption now only applies to
+///   unparenthesized calls that truly need parens to preserve call parsing, not block-attached
+///   calls that RuboCop still flags.
 pub struct RedundantParentheses;
 
 impl Cop for RedundantParentheses {
@@ -176,6 +192,9 @@ enum ParentKind {
 struct ParentInfo {
     kind: ParentKind,
     multiline: bool,
+    single_child: bool,
+    is_parentheses_body: bool,
+    is_parentheses_node: bool,
     call_parenthesized: bool,
     call_arg_count: usize,
     is_operator: bool,
@@ -761,11 +780,7 @@ impl RedundantParensVisitor<'_> {
         // where removing parens would change parsing.
         // But DO flag operator expressions like (z + w) since they don't need parens.
         if let Some(call) = inner.as_call_node() {
-            let has_args = call.arguments().is_some();
-            let call_has_parens = call.opening_loc().is_some();
-            let is_operator = is_operator_method(&call);
-            // Unparenthesized non-operator method call with args: (y arg) or (y.z arg)
-            if has_args && !call_has_parens && !is_operator {
+            if method_call_parentheses_required_in_method_arg(&call) {
                 return None;
             }
         }
@@ -824,6 +839,9 @@ impl RedundantParensVisitor<'_> {
         self.parent_stack.push(ParentInfo {
             kind,
             multiline: false,
+            single_child: false,
+            is_parentheses_body: false,
+            is_parentheses_node: false,
             call_parenthesized: false,
             call_arg_count: 0,
             is_operator: false,
@@ -943,7 +961,17 @@ fn check_method_call<'a>(
     }
 
     let has_args = call.arguments().is_some();
-    let call_has_parens = call.opening_loc().is_some();
+    let call_has_parens = call.opening_loc().is_some_and(|loc| loc.as_slice() == b"(");
+    let is_square_brackets = call.name().as_slice() == b"[]" && call.call_operator_loc().is_none();
+
+    // RuboCop does not fall back to "a method call" for comparisons used as the
+    // direct return value of a method or block body, but it still does for nested
+    // begin/paren contexts like `((1 == 2)).to_s`.
+    if is_comparison(inner)
+        && parent.is_some_and(|p| matches!(p.kind, ParentKind::Other) && !p.is_parentheses_body)
+    {
+        return None;
+    }
 
     // RuboCop's method_call_with_redundant_parentheses?:
     // If the inner call has unparenthesized args (like operators `a + b`),
@@ -951,24 +979,14 @@ fn check_method_call<'a>(
     // content of its parent. Otherwise removing parens would change parsing.
     // RuboCop checks `begin_node.parent.children.one?` — the parent must have
     // exactly one child. For Return/Next/Break/Super/Yield, this means the
-    // keyword has a single argument.
-    if has_args && !call_has_parens {
-        let singular = match parent {
-            None => true,
-            Some(p) => {
-                matches!(
-                    p.kind,
-                    ParentKind::Return
-                        | ParentKind::Next
-                        | ParentKind::Break
-                        | ParentKind::Super
-                        | ParentKind::Yield
-                ) && p.call_arg_count <= 1
-            }
-        };
-        if !singular {
-            return None;
-        }
+    // keyword has a single argument. `[]` calls are handled like RuboCop's
+    // `square_brackets?` matcher and don't need the singular-parent check.
+    if has_args
+        && !call_has_parens
+        && !is_square_brackets
+        && !has_singular_parenthesized_parent(parent)
+    {
+        return None;
     }
 
     Some("a method call")
@@ -1179,6 +1197,42 @@ fn is_operator_method(call: &ruby_prism::CallNode<'_>) -> bool {
     method_identifier_predicates::is_operator_method(call.name().as_slice())
 }
 
+fn method_call_parentheses_required_in_method_arg(call: &ruby_prism::CallNode<'_>) -> bool {
+    if call.block().is_some() {
+        return false;
+    }
+
+    let has_args = call.arguments().is_some();
+    let call_has_parens = call.opening_loc().is_some_and(|loc| loc.as_slice() == b"(");
+    has_args
+        && !call_has_parens
+        && (call.receiver().is_none() || call.call_operator_loc().is_some())
+}
+
+fn has_singular_parenthesized_parent(parent: Option<&ParentInfo>) -> bool {
+    match parent {
+        None => true,
+        Some(parent) => {
+            if matches!(parent.kind, ParentKind::Splat | ParentKind::KeywordSplat) {
+                return false;
+            }
+
+            if matches!(
+                parent.kind,
+                ParentKind::Return
+                    | ParentKind::Next
+                    | ParentKind::Break
+                    | ParentKind::Super
+                    | ParentKind::Yield
+            ) {
+                return parent.call_arg_count == 1;
+            }
+
+            parent.single_child
+        }
+    }
+}
+
 fn classify_simple(node: &ruby_prism::Node<'_>) -> Option<&'static str> {
     if is_literal(node) {
         Some("a literal")
@@ -1340,7 +1394,20 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
         self.parent_stack.pop();
     }
 
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        let is_parentheses_body = self.parent_stack.len() >= 2
+            && self.parent_stack[self.parent_stack.len() - 2].is_parentheses_node;
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.single_child = node.body().len() == 1 && is_parentheses_body;
+            top.is_parentheses_body = is_parentheses_body;
+        }
+        ruby_prism::visit_statements_node(self, node);
+    }
+
     fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_parentheses_node = true;
+        }
         self.check_parens(node);
         // enter already pushed; leave will pop
         ruby_prism::visit_parentheses_node(self, node);
@@ -1574,6 +1641,7 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
     fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
         if let Some(top) = self.parent_stack.last_mut() {
             top.kind = ParentKind::Array;
+            top.single_child = node.elements().len() == 1;
         }
         ruby_prism::visit_array_node(self, node);
     }

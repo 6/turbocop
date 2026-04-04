@@ -166,6 +166,8 @@ x ({ y: 1 }.merge({ y: 2 })), z
 (arr || []).each { |x| x }
 (hash || {}).merge(other)
 (a & b).include?(item)
+# Safe-navigation bracket call in boolean context — RuboCop doesn't treat `&.[]` like plain `[]`
+(@extensions&.[] name.to_sym) || false
 # Assignment in default parameter value — parens syntactically required
 def method(value = (not_set = true))
 end
