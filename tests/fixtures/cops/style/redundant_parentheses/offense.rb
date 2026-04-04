@@ -126,3 +126,21 @@ x.y((1..42))
 
 foo.include?((port = get_port))
              ^ Style/RedundantParentheses: Don't use parentheses around a method argument.
+
+({filename: file, content: File.read(file)}.merge(opts)).to_json
+^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+({filename: file, content: File.read(file)}.merge(opts)).to_json
+^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+new_file = [(Pod::Sandbox::PathList.new(@banana_spec.defined_in_file.dirname).root + 'CoolFile.h')]
+
+return ((isprint(c)) ? 1 : 2)
+        ^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+c = (((c & 0x03ff)) << 10 | (low & 0x03ff)) + 0x10000
+
+exit_code = (@codaveri_evaluation_results.map(&:success).all? { |n| n == 1 }) ? 0 : 2
+            ^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+((1 << 128)).to_s(16), # 0
