@@ -161,3 +161,27 @@ match(event,
      on_finish
    end),
 )
+
+(`curl -s http://localhost:#{@port}/ | wc`).split(" ").first.to_i > 10
+^ Style/RedundantParentheses: Don't use parentheses around a literal.
+
+text = (
+       ^ Style/RedundantParentheses: Don't use parentheses around a literal.
+  `dbus-send --print-reply --dest=org.kde.klipper \
+  /klipper org.kde.klipper.klipper.getClipboardContents | awk '#{awk_script}'`
+).split("\n", -1)
+
+next mem if (Array(@config[:exclude])).include? File.basename(fdir)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+(`convert #{ico_template} -resize #{size}x#{size} #{FILE_FAVICO_DIR}/favicon-#{size}x#{size}.ico`)
+^ Style/RedundantParentheses: Don't use parentheses around a literal.
+
+(`convert #{ico_template} -resize #{size}x#{size} #{FILE_FAVICO_DIR}/apple-touch-icon-#{size}x#{size}.png`)
+^ Style/RedundantParentheses: Don't use parentheses around a literal.
+
+(`convert #{ico_template} -resize #{size}x#{size} #{FILE_FAVICO_DIR}/apple-touch-icon-#{size}x#{size}-precomposed.png`)
+^ Style/RedundantParentheses: Don't use parentheses around a literal.
+
+(`convert #{ico_template} -resize #{size}x#{size} #{FILE_FAVICO_DIR}/mstile-#{size}x#{size}.png`)
+^ Style/RedundantParentheses: Don't use parentheses around a literal.
