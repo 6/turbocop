@@ -44,3 +44,15 @@ class DefaultWithFromTo < ActiveRecord::Migration[7.0]
     change_column_default(:posts, :state, from: nil, to: "draft")
   end
 end
+
+class RemoveAffiliateFromDailyLeftNavStats < ActiveRecord::Migration
+  def change
+    remove_column :daily_left_nav_stats, :affiliate_id
+  end
+end
+
+class RemoveNullConstraintOnTagging < ActiveRecord::Migration
+  def change
+    change_column :taggings, :entry_id, :integer, null: true
+  end
+end
