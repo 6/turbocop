@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -140,38 +141,6 @@ const KERNEL_METHODS: &[&[u8]] = &[
 /// which could be confused with a constant reference.
 fn is_uppercase_method(name: &[u8]) -> bool {
     name.first().is_some_and(|&b| b.is_ascii_uppercase())
-}
-
-/// Returns true if the method name is a Ruby operator method.
-/// RuboCop does not flag `self.` with operator methods (e.g. `self.+(other)`).
-fn is_operator_method(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"+" | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"=="
-            | b"==="
-            | b"!="
-            | b"<=>"
-            | b"=~"
-            | b"!~"
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<<"
-            | b">>"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"!"
-            | b"+@"
-            | b"-@"
-    )
 }
 
 impl Cop for RedundantSelf {
@@ -427,7 +396,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                         if !is_setter
                             && name_bytes != b"[]"
                             && name_bytes != b"[]="
-                            && !is_operator_method(name_bytes)
+                            && !method_identifier_predicates::is_operator_method(name_bytes)
                             && !ALLOWED_METHODS.contains(&name_bytes)
                             && !KERNEL_METHODS.contains(&name_bytes)
                             && !is_uppercase_method(name_bytes)
