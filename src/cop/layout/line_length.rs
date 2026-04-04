@@ -85,6 +85,22 @@ use crate::parse::source::SourceFile;
 /// 4. Escaped-slash filter — removed the `is_regex` code-map check that was
 ///    incorrectly skipping valid URI matches in non-regex escaped-slash
 ///    strings like `"http:\/\/host"`.
+///
+/// ## Corpus investigation (2026-04-04)
+///
+/// FNs (14 of 21 resolved) from three AllowURI edge cases:
+/// 1. Backslash in URI regex — `\` excluded from URI character class so
+///    matches stop at Ruby escape sequences (`\n`, `\#`) instead of
+///    spanning them as one long URI. Matches RuboCop's RFC 2396 behavior.
+/// 2. Markdown links `[url#frag](url#frag)` — our regex creates two
+///    separate matches where Ruby's creates one (spanning `](`), which
+///    `URI.parse` rejects. Detect separator `](` between matches when
+///    either URI has a `#` fragment and reject the exemption.
+/// 3. Quote-adjacent `]` — Ruby's URI regex includes `'` and `"` in
+///    matches (they're RFC 2396 unreserved), so `url#frag']` has `]`
+///    right at the match boundary. Our regex excludes quotes, leaving
+///    `'` then `]` in the extension. Strip leading quotes before the
+///    `]` fragment check to match Ruby's behavior.
 pub struct LineLength;
 
 impl Cop for LineLength {
@@ -446,21 +462,37 @@ fn uri_range_if_applicable(
     line_length: usize,
 ) -> Option<ExemptionRange> {
     let uri_regex = uri_regex?;
-    let last_match = merge_query_linked_uri_matches(line, uri_regex).pop()?;
+    let all_matches = merge_query_linked_uri_matches(line, uri_regex);
+    let last_match = *all_matches.last()?;
     let extended_end = extend_end_position(line, last_match.end);
     // Ruby's URI regex includes ']' in the match when the URI has a
     // fragment (the '#...' part). URI.parse then rejects the result,
     // so RuboCop doesn't use it for AllowURI exemption. When the URI
     // has no fragment, the regex excludes ']', and extension through
     // ']' legitimately reaches end-of-line for exemption (e.g. %w[url]).
+    // Our regex also excludes ' and " which Ruby's includes, so we
+    // strip those before checking for the ] boundary.
     let extension_text = &line[last_match.end..extended_end];
-    if extension_text.starts_with(']') {
+    let ext_past_quotes = extension_text.trim_start_matches(['\'', '"']);
+    if ext_past_quotes.starts_with(']') {
         let uri_text = &line[last_match.start..last_match.end];
         if uri_text.contains('#') {
-            // Ruby's URI regex would include ']' here, making URI.parse
-            // reject it. Return None so AllowQualifiedName can still
-            // exempt the line independently.
             return None;
+        }
+    }
+    // Markdown link pattern: [url#frag](url#frag)
+    // Ruby's URI regex creates ONE match spanning ](, which URI.parse
+    // rejects. Our regex creates TWO separate matches. Detect this
+    // specific pattern: separator is ]( and a URI has a # fragment.
+    if all_matches.len() >= 2 {
+        let prev = all_matches[all_matches.len() - 2];
+        let separator = &line[prev.end..last_match.start];
+        if separator.starts_with("](") {
+            let prev_uri = &line[prev.start..prev.end];
+            let last_uri = &line[last_match.start..last_match.end];
+            if prev_uri.contains('#') || last_uri.contains('#') {
+                return None;
+            }
         }
     }
     let end_pos = extended_end;
@@ -620,7 +652,7 @@ fn compile_uri_regex(schemes: &[String]) -> Option<regex::Regex> {
     // Case-insensitive matching only on the scheme prefixes (e.g. HTTP:// matches
     // but HTTP::Error does not). Using inline (?i:...) avoids making the entire
     // pattern case-insensitive, which would over-match Ruby constant paths.
-    let pattern = format!(r#"(?i:{})[^\s"'<>\]|{{}}]*"#, prefixes);
+    let pattern = format!(r#"(?i:{})[^\s"'<>\]|\\{{}}]*"#, prefixes);
     regex::Regex::new(&pattern).ok()
 }
 
