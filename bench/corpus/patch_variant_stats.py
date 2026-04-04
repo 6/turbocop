@@ -64,6 +64,32 @@ def patch(corpus: dict, variant_path: Path) -> bool:
     summary["variant_fp"] = v_fp
     summary["variant_fn"] = v_fn
 
+    # Per-cop variant-perfect status: a cop is variant-diverging if any
+    # of its variant entries have FP+FN > 0. Used by update_readme.py
+    # to compute per-department "variant matched exactly" counts.
+    variant_diverging_cops: set[str] = set()
+    for cop_name, variants in variant_by_cop.items():
+        if any(v.get("fp", 0) + v.get("fn", 0) > 0 for v in variants):
+            variant_diverging_cops.add(cop_name)
+
+    # Per-department: count variant-perfect and variant-diverging cops
+    dept_variant_perfect: dict[str, int] = {}
+    dept_variant_diverging: dict[str, int] = {}
+    for cop_entry in corpus.get("by_cop", []):
+        cop_name = cop_entry["cop"]
+        dept = cop_name.split("/")[0]
+        dept_variant_perfect.setdefault(dept, 0)
+        dept_variant_diverging.setdefault(dept, 0)
+        # A cop is variant-perfect if it's default-perfect AND not variant-diverging
+        default_perfect = cop_entry.get("perfect_match", False)
+        if cop_name in variant_diverging_cops:
+            dept_variant_diverging[dept] += 1
+        elif default_perfect:
+            dept_variant_perfect[dept] += 1
+        elif cop_entry.get("diverging", False):
+            # Already diverging in default — still variant-diverging
+            dept_variant_diverging[dept] += 1
+
     for dept_entry in corpus.get("by_department", []):
         dept = dept_entry["department"]
         extra = dept_extra.get(dept)
@@ -73,6 +99,8 @@ def patch(corpus: dict, variant_path: Path) -> bool:
             combined_matches = dept_entry["matches"] + extra["matches"]
             dept_entry["variant_match_rate"] = trunc4(
                 combined_matches / combined_total) if combined_total > 0 else 1.0
+        dept_entry["variant_perfect_cops"] = dept_variant_perfect.get(dept, 0)
+        dept_entry["variant_diverging_cops"] = dept_variant_diverging.get(dept, 0)
 
     return True
 

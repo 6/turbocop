@@ -185,10 +185,9 @@ def test_write():
         assert "\"Matched exactly\" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus." in updated
         assert "No corpus data means the cop never appeared in the corpus, so it has not been compared yet." in updated
         assert "See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown." in updated
-        assert "| Department | Cops | Matched exactly | Differed | No corpus data | Default % |" in updated
+        assert "| Department | Cops | Matched exactly | Differed | No corpus data | Matched exactly % |" in updated
         assert "**[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (9 cops)" in updated
-        # Default % is now offense match rate, not cop exact-match %
-        assert "| Rails | 1 | 0 | 1 |" in updated
+        assert "| Rails | 1 | 0 | 1 | 0.0% |" in updated
         assert "| Performance | 1 | 1 | 0 | ✓ 100.0% |" in updated
         assert "| **Total** | **1** |" not in updated
         assert "Old generated cops section." not in updated

@@ -189,7 +189,8 @@ def build_department_stats(data: dict, synthetic: dict[str, dict] | None = None)
             "matches": entry.get("matches", derived_entry.get("matches", 0)),
             "fp": entry.get("fp", derived_entry.get("fp", 0)),
             "fn": entry.get("fn", derived_entry.get("fn", 0)),
-            "variant_match_rate": entry.get("variant_match_rate"),
+            "variant_perfect_cops": entry.get("variant_perfect_cops"),
+            "variant_diverging_cops": entry.get("variant_diverging_cops"),
         }
 
     for dept, entry in derived.items():
@@ -210,6 +211,7 @@ def build_department_stats(data: dict, synthetic: dict[str, dict] | None = None)
             })
 
     return stats_by_department
+
 
 
 def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> str:
@@ -273,7 +275,7 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         perfect = sum(r["perfect_cops"] for r in rows)
         diverging = sum(r["diverging_cops"] for r in rows)
         no_data = sum(r["no_data_cops"] for r in rows)
-        has_variant = any(r.get("variant_match_rate") is not None for r in rows)
+        has_variant = any(r.get("variant_perfect_cops") is not None for r in rows)
         version = baseline.get(gem["key"], "?")
         lines.append(f"**[{gem['key']}]({gem['url']})** `{version}` ({total:,} cops)")
         lines.append("")
@@ -284,8 +286,8 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         if no_data > 0:
             hdr += " No corpus data |"
             sep += "---------------:|"
-        hdr += " Default % |"
-        sep += "----------:|"
+        hdr += " Matched exactly % |"
+        sep += "------------------:|"
         if has_variant:
             hdr += " All variants % |"
             sep += "---------------:|"
@@ -299,25 +301,26 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
             )
             if no_data > 0:
                 cells += f" {row['no_data_cops']:,} |"
-            cells += f" {format_offense_match_pct(row['matches'], row['fp'], row['fn'])} |"
+            cells += f" {format_exact_match_pct(row['perfect_cops'], row['cops'])} |"
             if has_variant:
-                vr = row.get("variant_match_rate")
-                cells += f" {format_match_rate(vr) if vr is not None else 'N/A'} |"
+                vpc = row.get("variant_perfect_cops")
+                if vpc is not None:
+                    cells += f" {format_exact_match_pct(vpc, row['cops'])} |"
+                else:
+                    cells += " N/A |"
             lines.append(cells)
 
         if len(rows) > 1:
-            gem_matches = sum(r["matches"] for r in rows)
-            gem_fp = sum(r["fp"] for r in rows)
-            gem_fn = sum(r["fn"] for r in rows)
             cells = (
                 f"| **Total** | **{total:,}** | **{perfect:,}** | "
                 f"**{diverging:,}** |"
             )
             if no_data > 0:
                 cells += f" **{no_data:,}** |"
-            cells += f" **{format_offense_match_pct(gem_matches, gem_fp, gem_fn)}** |"
+            cells += f" **{format_exact_match_pct(perfect, total)}** |"
             if has_variant:
-                cells += " |"
+                gem_variant_perfect = sum(r.get("variant_perfect_cops", 0) for r in rows)
+                cells += f" **{format_exact_match_pct(gem_variant_perfect, total)}** |"
             lines.append(cells)
         lines.append("")
 
