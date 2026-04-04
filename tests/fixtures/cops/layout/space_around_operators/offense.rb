@@ -98,3 +98,15 @@ t.pattern = 'spec/**/*_spec.rb'
 t.libs    << 'spec'
           ^^ Layout/SpaceAroundOperators: Operator `<<` should be surrounded by a single space.
 t.warning = false
+
+# Extra space before => inside hash (not aligned)
+{ 'environ'  => 1 }
+             ^^ Layout/SpaceAroundOperators: Operator `=>` should be surrounded by a single space.
+
+# Extra space before => with symbol key
+{ :reset   => "\e[0m" }
+           ^^ Layout/SpaceAroundOperators: Operator `=>` should be surrounded by a single space.
+
+# Setter call with extra trailing space (not aligned with neighbor)
+adapter.properties =  @props
+                   ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
