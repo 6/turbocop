@@ -11,6 +11,10 @@ use crate::parse::source::SourceFile;
 ///
 /// When multiple tasks are defined with the same name, Rake executes all
 /// of them sequentially. This is usually unintentional and confusing.
+///
+/// RuboCop skips tasks nested under namespaces whose names cannot be resolved
+/// statically, such as `namespace adapter do`; those tasks should not be
+/// flattened into the top-level namespace.
 pub struct DuplicateTask;
 
 impl Cop for DuplicateTask {
@@ -54,17 +58,23 @@ struct TaskInfo {
 struct DuplicateTaskVisitor<'a> {
     cop: &'a DuplicateTask,
     source: &'a SourceFile,
-    namespace_stack: Vec<String>,
+    namespace_stack: Vec<Option<String>>,
     tasks: HashMap<String, TaskInfo>,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl DuplicateTaskVisitor<'_> {
-    fn full_task_name(&self, task_name: &str) -> String {
-        if self.namespace_stack.is_empty() {
-            task_name.to_string()
+    fn full_task_name(&self, task_name: &str) -> Option<String> {
+        let namespaces = self
+            .namespace_stack
+            .iter()
+            .map(|name| name.as_deref())
+            .collect::<Option<Vec<_>>>()?;
+
+        if namespaces.is_empty() {
+            Some(task_name.to_string())
         } else {
-            format!("{}:{}", self.namespace_stack.join(":"), task_name)
+            Some(format!("{}:{}", namespaces.join(":"), task_name))
         }
     }
 }
@@ -73,18 +83,20 @@ impl<'pr> Visit<'pr> for DuplicateTaskVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let name = node.name().as_slice();
 
-        if name == b"namespace" && node.block().is_some() {
-            if let Some(ns_name) = crate::cop::rake::extract_task_name(node) {
-                self.namespace_stack.push(ns_name);
-                ruby_prism::visit_call_node(self, node);
-                self.namespace_stack.pop();
-                return;
-            }
+        if name == b"namespace" && node.block().is_some() && node.receiver().is_none() {
+            self.namespace_stack
+                .push(crate::cop::rake::extract_task_name(node));
+            ruby_prism::visit_call_node(self, node);
+            self.namespace_stack.pop();
+            return;
         }
 
         if name == b"task" && node.receiver().is_none() {
             if let Some(task_name) = crate::cop::rake::extract_task_name(node) {
-                let full_name = self.full_task_name(&task_name);
+                let Some(full_name) = self.full_task_name(&task_name) else {
+                    ruby_prism::visit_call_node(self, node);
+                    return;
+                };
                 let loc = node.message_loc().unwrap_or(node.location());
                 let (line, _) = self.source.offset_to_line_col(loc.start_offset());
 
