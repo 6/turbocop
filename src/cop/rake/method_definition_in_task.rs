@@ -9,6 +9,10 @@ use crate::parse::source::SourceFile;
 ///
 /// Methods defined inside task/namespace blocks are actually created at the
 /// top level despite their syntactic location, which is misleading.
+///
+/// Like RuboCop, methods inside `Class.new { }` / `Module.new { }` blocks
+/// (including `do..end` form and `::Class`/`::Module` variants) are excluded
+/// because the def is scoped to the anonymous class/module, not the top level.
 pub struct MethodDefinitionInTask;
 
 impl Cop for MethodDefinitionInTask {
@@ -63,6 +67,11 @@ impl<'pr> Visit<'pr> for MethodInTaskVisitor<'_> {
             self.in_task_or_namespace = true;
             ruby_prism::visit_call_node(self, node);
             self.in_task_or_namespace = was;
+        } else if name == b"new" && node.block().is_some() && is_class_or_module_receiver(node) {
+            let was = self.in_class_definition;
+            self.in_class_definition = true;
+            ruby_prism::visit_call_node(self, node);
+            self.in_class_definition = was;
         } else {
             ruby_prism::visit_call_node(self, node);
         }
@@ -102,6 +111,34 @@ impl<'pr> Visit<'pr> for MethodInTaskVisitor<'_> {
             ));
         }
         ruby_prism::visit_def_node(self, node);
+    }
+}
+
+/// Returns true if the receiver of a call node is `Class` or `Module` (bare or `::` prefixed).
+fn is_class_or_module_receiver(node: &ruby_prism::CallNode<'_>) -> bool {
+    let Some(receiver) = node.receiver() else {
+        return false;
+    };
+    match receiver {
+        ruby_prism::Node::ConstantReadNode { .. } => {
+            let cr = receiver.as_constant_read_node().unwrap();
+            let name = cr.name().as_slice();
+            name == b"Class" || name == b"Module"
+        }
+        ruby_prism::Node::ConstantPathNode { .. } => {
+            let cp = receiver.as_constant_path_node().unwrap();
+            // ::Class or ::Module (parent is None for cbase)
+            if cp.parent().is_some() {
+                return false;
+            }
+            if let Some(name) = cp.name() {
+                let name = name.as_slice();
+                name == b"Class" || name == b"Module"
+            } else {
+                false
+            }
+        }
+        _ => false,
     }
 }
 
