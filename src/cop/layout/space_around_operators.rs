@@ -532,10 +532,11 @@ fn check_text_scanner_extra_space(
     // if there IS a subsequent assignment neighbor at the same indentation that is
     // NOT aligned. If there's no subsequent assignment, it's standalone or end-of-group
     // and should not be flagged.
-    if multi_before && allow_trailing_rhs_alignment {
-        if !has_subsequent_assignment_neighbor(source, op_start) {
-            multi_before = false;
-        }
+    if multi_before
+        && allow_trailing_rhs_alignment
+        && !has_subsequent_assignment_neighbor(source, op_start)
+    {
+        multi_before = false;
     }
 
     if multi_after {
