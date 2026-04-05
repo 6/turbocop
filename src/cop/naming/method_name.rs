@@ -81,6 +81,14 @@ use ruby_prism::Visit;
 /// `c.loc.name.is?(name.to_s)` compares the full constant path text
 /// ("HighLine::String" != "String"), so it correctly flags the offense.
 /// Fixed by using the full constant path text in `collect_emitter_name`.
+///
+/// ## Style variant fix (2026-04-05) — camelCase FP=10
+///
+/// With `EnforcedStyle: camelCase`, bare `_` method names were flagged as
+/// non-camelCase (FP). RuboCop's camelCase regex
+/// `/^@{0,2}(?:_|_?[[:lower:]]...)[!?=]?$/` explicitly accepts `_` via
+/// the first alternative. `is_lower_camel_case` was returning false for
+/// bare `_` — fixed to return true, matching the regex.
 pub struct MethodName;
 
 /// Bundles config values needed for method name checking.
@@ -607,7 +615,8 @@ fn is_lower_camel_case(name: &str) -> bool {
     let lead = if first == '_' {
         match chars.next() {
             Some(ch) => ch,
-            None => return false,
+            // RuboCop's camelCase regex accepts bare `_` via the `(?:_|...)` alternative
+            None => return true,
         }
     } else {
         first
@@ -803,6 +812,60 @@ mod tests {
         assert!(
             diags.is_empty(),
             "def self.String with class String sibling should be allowed"
+        );
+    }
+
+    #[test]
+    fn camel_case_accepts_bare_underscore() {
+        // RuboCop's camelCase regex /^@{0,2}(?:_|_?[[:lower:]]...)[!?=]?$/
+        // explicitly accepts bare `_` as valid camelCase via the first alternative.
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("camelCase".into()),
+            )]),
+            ..CopConfig::default()
+        };
+
+        // def _ should not be flagged in camelCase mode
+        let source = b"def _\nend\n";
+        let diags = run_cop_full_with_config(&MethodName, source, config.clone());
+        assert!(
+            diags.is_empty(),
+            "bare _ should be valid camelCase, got: {:?}",
+            diags
+        );
+
+        // define_method :_ should not be flagged
+        let source2 = b"define_method :_ do\nend\n";
+        let diags2 = run_cop_full_with_config(&MethodName, source2, config.clone());
+        assert!(
+            diags2.is_empty(),
+            "define_method :_ should be valid camelCase"
+        );
+
+        // attr_reader :_ should not be flagged
+        let source3 = b"attr_reader :_\n";
+        let diags3 = run_cop_full_with_config(&MethodName, source3, config.clone());
+        assert!(
+            diags3.is_empty(),
+            "attr_reader :_ should be valid camelCase"
+        );
+
+        // alias _ foo should not be flagged
+        let source4 = b"alias _ foo\n";
+        let diags4 = run_cop_full_with_config(&MethodName, source4, config.clone());
+        assert!(diags4.is_empty(), "alias _ should be valid camelCase");
+
+        // alias_method :_, :foo should not be flagged
+        let source5 = b"alias_method :_, :foo\n";
+        let diags5 = run_cop_full_with_config(&MethodName, source5, config);
+        assert!(
+            diags5.is_empty(),
+            "alias_method :_ should be valid camelCase"
         );
     }
 }
