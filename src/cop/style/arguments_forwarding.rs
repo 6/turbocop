@@ -51,6 +51,13 @@ use crate::parse::source::SourceFile;
 /// `call(*, **, &).raise_if_error!`. nitrocop was classifying the inner receiver send as a
 /// standalone forwarding call and incorrectly reporting `...`. Fix: track receiver traversal in
 /// the anonymous classifier and skip `...` classification for receiver-only subexpressions.
+///
+/// FP=4 investigation (2026-04-05): `NonForwardingRefFinder` skipped nested `def` nodes, but
+/// RuboCop's `non_splat_or_block_pass_lvar_references` uses `each_descendant(:lvar, :lvasgn)`
+/// which crosses def boundaries. When a nested def has parameters with the same name as the
+/// outer method (e.g., `def inner(*args); args.first; end`), the inner lvar reference marks
+/// that name as "referenced" and suppresses forwarding. Fix: removed the `visit_def_node`
+/// early return from `NonForwardingRefFinder` so it walks into nested defs, matching RuboCop.
 pub struct ArgumentsForwarding;
 
 const FORWARDING_MSG: &str = "Use shorthand syntax `...` for arguments forwarding.";
@@ -1120,8 +1127,11 @@ impl<'pr> Visit<'pr> for NonForwardingRefFinder {
         ruby_prism::visit_block_argument_node(self, node);
     }
 
-    // Don't recurse into nested defs
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+    // Walk into nested defs to collect lvar references from inner scopes.
+    // RuboCop's `non_splat_or_block_pass_lvar_references` uses `each_descendant(:lvar, :lvasgn)`
+    // which crosses def boundaries. When a nested def has parameters with the same name as the
+    // outer method (e.g., `def inner(*args); args.first; end`), the inner lvar reference marks
+    // the name as "referenced" and suppresses forwarding suggestions for the outer method.
 }
 
 #[cfg(test)]

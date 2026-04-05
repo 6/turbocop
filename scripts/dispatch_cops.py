@@ -1519,16 +1519,40 @@ def generate_task(
     parts = []
 
     # Header
-    parts.append(f"# Fix {cop} — {corpus['fp']} FP, {corpus['fn']} FN\n")
+    # Load variant data early for title/framing
+    variants = load_variant_data_for_cop(cop)
+    diverging_variants = [v for v in variants if v["fp"] + v["fn"] > 0]
+    default_perfect = corpus.get("fp", 0) + corpus.get("fn", 0) == 0
+    variant_fp = sum(v["fp"] for v in diverging_variants)
+    variant_fn = sum(v["fn"] for v in diverging_variants)
+
+    if default_perfect and diverging_variants:
+        parts.append(f"# Fix {cop} — variant divergence: {variant_fp:,} FP, {variant_fn:,} FN\n")
+    else:
+        parts.append(f"# Fix {cop} — {corpus['fp']} FP, {corpus['fn']} FN\n")
 
     # Instructions
-    focus = "FP" if corpus["fp"] > corpus["fn"] else "FN" if corpus["fn"] > corpus["fp"] else "both FP and FN"
+    if default_perfect and diverging_variants:
+        focus = "variant style divergence"
+        focus_detail = (
+            "default config is perfect — the issue is with non-default "
+            "`EnforcedStyle` values"
+        )
+    elif corpus["fp"] > corpus["fn"]:
+        focus = "FP"
+        focus_detail = "nitrocop flags code RuboCop does not"
+    elif corpus["fn"] > corpus["fp"]:
+        focus = "FN"
+        focus_detail = "RuboCop flags code nitrocop misses"
+    else:
+        focus = "both FP and FN"
+        focus_detail = "both directions"
     parts.append(f"""## Instructions
 
 You are fixing ONE cop in **nitrocop**, a Rust Ruby linter that uses Prism for parsing.
 
 **Current state:** {corpus['matches']:,} matches, {corpus['fp']} false positives, {corpus['fn']} false negatives.
-**Focus on:** {focus} ({"nitrocop flags code RuboCop does not" if corpus["fp"] > corpus["fn"] else "RuboCop flags code nitrocop misses" if corpus["fn"] > corpus["fp"] else "both directions"}).
+**Focus on:** {focus} ({focus_detail}).
 
 **⚠ {corpus['matches']:,} existing matches must not regress.** Validate with `check_cop.py` before committing.
 
@@ -1711,6 +1735,23 @@ forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
         parts.append(f"## Current Fixture: no_offense.rb\n`tests/fixtures/cops/{dept_snake}/{snake}/no_offense.rb`\n")
         parts.append(f"```ruby\n{no_offense_fixture}```\n")
 
+    # Include variant fixture files if they exist
+    fixture_dir = PROJECT_ROOT / "tests" / "fixtures" / "cops" / dept_snake / snake
+    if fixture_dir.exists():
+        variant_fixtures = sorted(
+            f for f in fixture_dir.iterdir()
+            if f.suffix == ".rb" and f.name not in ("offense.rb", "no_offense.rb")
+            and ("offense." in f.name or "no_offense." in f.name)
+        )
+        if variant_fixtures:
+            parts.append("## Existing Variant Fixtures\n")
+            for vf in variant_fixtures:
+                content = read_file_safe(vf)
+                if content:
+                    rel = vf.relative_to(PROJECT_ROOT)
+                    parts.append(f"### `{rel}`\n")
+                    parts.append(f"```ruby\n{content}```\n")
+
     # Large source files — just reference paths, the agent can read them
     parts.append("## Key Source Files\n")
     parts.append(f"- Rust implementation: `{rust_path.relative_to(PROJECT_ROOT)}`")
@@ -1721,11 +1762,6 @@ forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
     parts.append("")
     parts.append("Read these files before making changes.\n")
 
-    # Load variant data early — placement depends on whether default is perfect
-    variants = load_variant_data_for_cop(cop)
-    diverging_variants = [v for v in variants if v["fp"] + v["fn"] > 0]
-    default_perfect = corpus.get("fp", 0) + corpus.get("fn", 0) == 0
-
     # For variant-only cops (default perfect), put variant section first
     # as it's the primary task. For mixed cops, put it after default data.
     def _variant_section() -> list[str]:
@@ -1734,13 +1770,12 @@ forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
         lines = ["## Style Variant Divergence\n"]
         if default_perfect:
             lines.append(
-                "**The default config is already perfect.** The remaining work is "
-                "fixing non-default style variants. Use "
-                "`check_cop.py --style PARAM=VALUE` to test specific styles.\n"
+                "**The default config is already perfect.** Your task is fixing "
+                "non-default style variants listed below.\n"
             )
         else:
             lines.append(
-                "This cop also has divergence under non-default style configurations:\n"
+                "This cop also has divergence under non-default style configurations.\n"
             )
         lines.append("| Style | Matches | FP | FN |")
         lines.append("|-------|--------:|---:|---:|")
@@ -1749,6 +1784,36 @@ forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
                 f"| {v['style_label']} | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} |"
             )
         lines.append("")
+        lines.append("### How to fix variant divergence\n")
+        lines.append(
+            "1. **Find the config read:** Look for `config.get_str(\"EnforcedStyle\", ...)` or "
+            "similar `Enforced*` reads in the Rust source. The cop should branch on the "
+            "configured style value.\n"
+        )
+        lines.append(
+            "2. **Check the RuboCop Ruby source** for how each style value changes behavior. "
+            "The ground truth is in the vendored Ruby cop file.\n"
+        )
+        lines.append(
+            "3. **Add fixture tests** for each broken variant. Use the `# nitrocop-config:` "
+            "directive at the top of fixture files:\n"
+            "```ruby\n"
+            "# nitrocop-config: EnforcedStyle: comma\n"
+            "# ^^^ offense annotation here\n"
+            "trailing_comma_example(a, b,)\n"
+            "```\n"
+        )
+        lines.append(
+            "4. **Validate locally** with `check_cop.py --style`:\n"
+            f"```bash\n"
+            f"python3 scripts/check_cop.py {cop} --rerun --clone --sample 15 "
+            f"--style EnforcedStyle=<value>\n"
+            f"```\n"
+        )
+        lines.append(
+            "5. **All variants must pass.** The CI gate (`--check-variants`) runs ALL "
+            "variant styles automatically. Fixing one variant must not break another.\n"
+        )
         return lines
 
     start_here = build_start_here_section(cop, corpus)

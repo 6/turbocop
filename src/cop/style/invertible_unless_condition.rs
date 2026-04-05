@@ -52,6 +52,17 @@ use std::collections::HashMap;
 /// when building the preferred condition string, so both detection and messages
 /// missed these patterns. Fix: only reject real `BlockNode` bodies (`do/end`, `{}`)
 /// and treat `BlockArgumentNode` as an argument-like suffix in preferred messages.
+///
+/// Corpus investigation (2026-04-05):
+///
+/// FP=5 root cause: Prism wraps pattern matching guards (`in pattern unless guard`)
+/// as UnlessNode inside InNode.pattern. The cop was processing these guard UnlessNodes
+/// the same as standalone unless statements. RuboCop skips these because pattern
+/// matching guards are not regular unless conditionals.
+///
+/// Fix: added `is_pattern_matching_guard()` check that detects when an UnlessNode is
+/// preceded by just `in` on the same line (matching the approach used by
+/// Lint/LiteralAsCondition and Metrics/AbcSize for the same Prism behavior).
 pub struct InvertibleUnlessCondition;
 
 impl InvertibleUnlessCondition {
@@ -302,6 +313,22 @@ impl InvertibleUnlessCondition {
         String::from_utf8_lossy(node.location().as_slice()).to_string()
     }
 
+    /// Check if an UnlessNode is a pattern matching guard (`in pattern unless guard`).
+    /// Prism wraps these as UnlessNode inside InNode.pattern. Detect by checking
+    /// if the text from line start to the node start is just `in`.
+    fn is_pattern_matching_guard(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+        let loc = node.location();
+        let start = loc.start_offset();
+        let (line, _col) = source.offset_to_line_col(start);
+        if let Some(line_start) = source.line_col_to_offset(line, 0) {
+            if let Some(prefix) = source.try_byte_slice(line_start, start) {
+                let trimmed = prefix.trim();
+                return trimmed == "in";
+            }
+        }
+        false
+    }
+
     /// Check if a method name is an operator (like !=, >, >=, etc.)
     fn is_operator_method(name: &[u8]) -> bool {
         matches!(
@@ -348,6 +375,12 @@ impl Cop for InvertibleUnlessCondition {
             Some(u) => u,
             None => return,
         };
+
+        // Skip pattern matching guards: `in pattern unless guard`
+        // Prism represents these as UnlessNode inside InNode.pattern.
+        if Self::is_pattern_matching_guard(source, node) {
+            return;
+        }
 
         let inverse_map = Self::build_inverse_map(config);
 

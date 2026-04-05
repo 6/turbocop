@@ -180,15 +180,12 @@ def test_write():
         assert "167k Ruby files" in updated
         assert "nitrocop supports 14 cops from 7 RuboCop gems." in updated
         assert "Compared with RuboCop on [**500 open-source repos**](docs/corpus.md) (167k Ruby files)." in updated
-        assert "96.0% offense match rate (4.9M of 5.1M offenses)." in updated
-        assert "6 of 14 cops matched exactly (default config); 4 differed; 4 had no corpus data." in updated
-        assert "**Default** = tested with the default RuboCop config." in updated
-        assert "No corpus data means the cop never appeared in the corpus, so it has not been compared yet." in updated
+        assert "6 of 14 cops produce identical results to RuboCop (default config)." in updated
+        assert "4 cops had no corpus data." in updated
         assert "See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown." in updated
-        assert "| Department | Cops | Exact match (default) | Differed | No corpus data | Exact match % (default) |" in updated
+        assert "| Department | Cops | Exact match (default) |" in updated
         assert "**[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (9 cops)" in updated
-        assert "| Rails | 1 | 0 | 1 | 0.0% |" in updated
-        assert "| Performance | 1 | 1 | 0 | ✓ 100.0% |" in updated
+        assert "| Performance | 1 | 1 (✓ 100.0%) |" in updated
         assert "| **Total** | **1** |" not in updated
         assert "Old generated cops section." not in updated
         assert "## Conformance" not in updated

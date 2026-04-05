@@ -199,3 +199,10 @@ end
 if (log_state == 'newCall' && cause != 'forwarded') || log_to_comment == 'voicemail' # rubocop:disable Style/SoleNestedConditional
   log_done = false
 end
+
+# Single-line direct collection values are accepted by RuboCop
+install_win(if parent then parent.path end, widgetname)
+
+[if condition then value end]
+
+{ x: if condition then value end }
