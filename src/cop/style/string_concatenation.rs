@@ -12,6 +12,14 @@ use crate::parse::source::SourceFile;
 /// - Backslash-continued concatenation like `"a" + \` newline `"b"`: RuboCop still flags these,
 ///   because only a literal `+\s*\n` line-end continuation is delegated to
 ///   `Style/LineEndConcatenation`.
+///
+/// Fixed FPs:
+/// - Safe navigation `&.+(':')` (csend in Parser): RuboCop's `RESTRICT_ON_SEND` only fires on
+///   `send` nodes, not `csend`. We now skip CallNodes with `&.` call operator.
+/// - Percent literals with backslash line-continuations (`%(str\` + newline + `str)`): In Parser
+///   these are `str` (the backslash consumes the newline), but Prism's StringNode spans multiple
+///   source lines. `is_str_type` now recognizes these as `str` in double-quoted contexts,
+///   allowing `is_line_end_concatenation` to correctly skip them.
 pub struct StringConcatenation;
 
 impl StringConcatenation {
@@ -43,11 +51,43 @@ impl StringConcatenation {
                 }
             }
             // For non-heredoc strings, exclude multi-line ones (dstr in Parser).
-            // Check if the node's source contains a newline.
+            // However, in double-quoted contexts (", %(, %Q, etc.), a backslash
+            // before a newline is a line continuation — Parser still treats the
+            // result as `str`. Only reject if the source contains an unescaped
+            // newline (odd number of preceding backslashes → continuation,
+            // even number → literal backslash followed by real newline).
             let loc = s.location();
             let source_bytes = loc.as_slice();
             if source_bytes.contains(&b'\n') {
-                return false;
+                // Check if the string is in a double-quoted context where
+                // backslash-newline is a line continuation.
+                let is_double_quoted = if let Some(op) = s.opening_loc() {
+                    let os = op.as_slice();
+                    os.starts_with(b"\"")
+                        || (os.starts_with(b"%") && !os.get(1).is_some_and(|&c| c == b'q'))
+                } else {
+                    false
+                };
+                if !is_double_quoted {
+                    return false;
+                }
+                // In a double-quoted context, check that every newline in
+                // source is preceded by an odd number of backslashes (i.e.
+                // it is a line continuation, not a real newline).
+                for (i, &b) in source_bytes.iter().enumerate() {
+                    if b == b'\n' {
+                        let mut backslashes = 0;
+                        let mut j = i;
+                        while j > 0 && source_bytes[j - 1] == b'\\' {
+                            backslashes += 1;
+                            j -= 1;
+                        }
+                        if backslashes == 0 || backslashes % 2 == 0 {
+                            return false;
+                        }
+                    }
+                }
+                return true;
             }
             return true;
         }
@@ -55,9 +95,18 @@ impl StringConcatenation {
     }
 
     /// Check if this is a `+` call with exactly one argument and a receiver.
+    /// Excludes safe-navigation calls (`&.+`) which are `csend` in Parser — RuboCop's
+    /// `RESTRICT_ON_SEND` only fires on `send` nodes, not `csend`.
     fn is_plus_call(call: &ruby_prism::CallNode<'_>) -> bool {
         if call.name().as_slice() != b"+" {
             return false;
+        }
+        // Skip safe navigation (&.+) — in Parser this is csend, not send,
+        // so RuboCop's on_send never fires for it.
+        if let Some(op) = call.call_operator_loc() {
+            if op.as_slice() == b"&." {
+                return false;
+            }
         }
         if let Some(args) = call.arguments() {
             let count = args.arguments().iter().count();
