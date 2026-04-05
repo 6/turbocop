@@ -3,12 +3,16 @@ use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// Prism exposes every `#{...}` body as an `EmbeddedStatementsNode`, including
-/// double-quoted strings, backticks, regexps, and symbols. The previous port
-/// only walked `InterpolatedStringNode` parts and reported the `#{` opener,
-/// which missed non-string interpolation forms and produced line-shifted
-/// diagnostics for multiline interpolations.
+/// double-quoted strings, backticks, regexps, and symbols. RuboCop's default
+/// style only inspects the top-level conditional in the interpolation body, but
+/// `EnforcedStyle=ternary` walks descendant modifier `if`/`unless` nodes and
+/// reports the interpolation opener itself. The previous port reused the
+/// top-level logic for `ternary`, which missed nested modifier conditionals in
+/// multi-statement interpolations and reported multiline offenses on the inner
+/// `if` line instead of the `#{` opener.
 pub struct EmptyStringInsideInterpolation;
 
 impl Cop for EmptyStringInsideInterpolation {
@@ -40,13 +44,14 @@ impl Cop for EmptyStringInsideInterpolation {
         let Some(statements) = embedded.statements() else {
             return;
         };
-        let stmt_list: Vec<_> = statements.body().iter().collect();
-        if stmt_list.len() != 1 {
-            return;
-        }
 
         match enforced_style {
             "trailing_conditional" => {
+                let stmt_list: Vec<_> = statements.body().iter().collect();
+                if stmt_list.len() != 1 {
+                    return;
+                }
+
                 if let Some(if_node) = stmt_list[0].as_if_node() {
                     if branch_is_empty(if_node.statements())
                         || else_branch_is_empty(if_node.subsequent())
@@ -64,26 +69,18 @@ impl Cop for EmptyStringInsideInterpolation {
                 }
             }
             "ternary" => {
-                if let Some(if_node) = stmt_list[0].as_if_node() {
-                    if util::is_modifier_if(&if_node) {
-                        add_diagnostic(
-                            self,
-                            source,
-                            &stmt_list[0],
-                            diagnostics,
-                            MSG_TRAILING_CONDITIONAL,
-                        );
-                    }
-                } else if let Some(unless_node) = stmt_list[0].as_unless_node() {
-                    if util::is_modifier_unless(&unless_node) {
-                        add_diagnostic(
-                            self,
-                            source,
-                            &stmt_list[0],
-                            diagnostics,
-                            MSG_TRAILING_CONDITIONAL,
-                        );
-                    }
+                let mut counter = ModifierConditionalCounter::default();
+                counter.visit(&embedded.as_node());
+
+                let embedded_node = embedded.as_node();
+                for _ in 0..counter.count {
+                    add_diagnostic(
+                        self,
+                        source,
+                        &embedded_node,
+                        diagnostics,
+                        MSG_TRAILING_CONDITIONAL,
+                    );
                 }
             }
             _ => {}
@@ -93,6 +90,29 @@ impl Cop for EmptyStringInsideInterpolation {
 
 const MSG_TRAILING_CONDITIONAL: &str = "Do not use trailing conditionals in string interpolation.";
 const MSG_TERNARY: &str = "Do not return empty strings in string interpolation.";
+
+#[derive(Default)]
+struct ModifierConditionalCounter {
+    count: usize,
+}
+
+impl<'pr> Visit<'pr> for ModifierConditionalCounter {
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        if util::is_modifier_if(node) {
+            self.count += 1;
+        }
+
+        ruby_prism::visit_if_node(self, node);
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        if util::is_modifier_unless(node) {
+            self.count += 1;
+        }
+
+        ruby_prism::visit_unless_node(self, node);
+    }
+}
 
 fn add_diagnostic(
     cop: &EmptyStringInsideInterpolation,
@@ -134,8 +154,41 @@ fn is_empty_string_or_nil(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_yml::Value;
+
     crate::cop_fixture_tests!(
         EmptyStringInsideInterpolation,
         "cops/style/empty_string_inside_interpolation"
     );
+
+    fn ternary_config() -> CopConfig {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "EnforcedStyle".to_string(),
+            Value::String("ternary".to_string()),
+        );
+        config
+    }
+
+    #[test]
+    fn ternary_offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &EmptyStringInsideInterpolation,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/empty_string_inside_interpolation/ternary_offense.rb"
+            ),
+            ternary_config(),
+        );
+    }
+
+    #[test]
+    fn ternary_no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &EmptyStringInsideInterpolation,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/empty_string_inside_interpolation/ternary_no_offense.rb"
+            ),
+            ternary_config(),
+        );
+    }
 }
