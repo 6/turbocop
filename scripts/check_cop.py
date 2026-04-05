@@ -880,8 +880,10 @@ def _run_rubocop_for_variant(
             cmd, capture_output=True, text=True, timeout=timeout, env=env)
         data = json.loads(result.stdout)
         count = sum(
-            len(f.get("offenses", []))
+            1
             for f in data.get("files", [])
+            for o in f.get("offenses", [])
+            if o.get("cop_name") == cop
         )
         return {"count": count}
     except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError):
@@ -1455,6 +1457,7 @@ def main():
         print("PASS: no per-repo regressions vs baseline (default config)")
 
         # ── Variant style checks ──
+        variant_failed = False
         if args.check_variants and _CLONE_DIR is not None:
             # Generate variant batch configs if not provided
             variant_batches = args.variant_batches_dir
