@@ -64,7 +64,7 @@ impl StringConcatenation {
                 let is_double_quoted = if let Some(op) = s.opening_loc() {
                     let os = op.as_slice();
                     os.starts_with(b"\"")
-                        || (os.starts_with(b"%") && !os.get(1).is_some_and(|&c| c == b'q'))
+                        || (os.starts_with(b"%") && os.get(1).is_none_or(|&c| c != b'q'))
                 } else {
                     false
                 };
