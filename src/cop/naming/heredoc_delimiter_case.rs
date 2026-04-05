@@ -1,5 +1,5 @@
 use crate::cop::shared::node_type::{
-    INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE,
+    INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE, X_STRING_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -27,6 +27,7 @@ impl Cop for HeredocDelimiterCase {
             INTERPOLATED_STRING_NODE,
             STRING_NODE,
             INTERPOLATED_X_STRING_NODE,
+            X_STRING_NODE,
         ]
     }
 
@@ -58,6 +59,10 @@ impl Cop for HeredocDelimiterCase {
                 let close = s.closing_loc();
                 (open.start_offset(), open.end_offset(), close)
             } else if let Some(x) = node.as_interpolated_x_string_node() {
+                let open = x.opening_loc();
+                let close = x.closing_loc();
+                (open.start_offset(), open.end_offset(), Some(close))
+            } else if let Some(x) = node.as_x_string_node() {
                 let open = x.opening_loc();
                 let close = x.closing_loc();
                 (open.start_offset(), open.end_offset(), Some(close))
@@ -305,6 +310,19 @@ mod tests {
             diags.len(),
             1,
             "should flag uppercase delimiter with non-alnum chars"
+        );
+    }
+
+    #[test]
+    fn backtick_heredoc_xstring_node() {
+        // Backtick heredocs without interpolation use XStringNode, not InterpolatedXStringNode.
+        // Must be handled to avoid FN.
+        let input = b"x = <<~`cmd`\n  echo hello\ncmd\n";
+        let diags = crate::testutil::run_cop_full(&HeredocDelimiterCase, input);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag lowercase backtick heredoc delimiter with default uppercase style"
         );
     }
 
