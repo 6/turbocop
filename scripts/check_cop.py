@@ -1459,8 +1459,9 @@ def main():
             # Generate variant batch configs if not provided
             variant_batches = args.variant_batches_dir
             if not variant_batches:
-                import tempfile
-                variant_batches = tempfile.mkdtemp(prefix="variant_batches_")
+                # Generate into the repo's variant_batches dir so that
+                # inherit_from: ../baseline_rubocop.yml resolves correctly.
+                variant_batches = str(PROJECT_ROOT / "bench" / "corpus" / "variant_batches")
                 sys.path.insert(0, str(PROJECT_ROOT / "bench" / "corpus"))
                 from gen_variant_batches import generate_batches
                 generate_batches(Path(variant_batches))
@@ -1483,12 +1484,22 @@ def main():
                     variant_baselines=vb,
                 )
 
+                variant_failed = False
                 if variant_results:
                     print()
                     print("  Variant results:")
                     print(f"  {'Style':<30} {'NC':>8} {'RC':>8} {'FP':>6} {'FN':>6}  {'BL FP':>6} {'BL FN':>6}")
                     print(f"  {'-'*30} {'-'*8} {'-'*8} {'-'*6} {'-'*6}  {'-'*6} {'-'*6}")
                     for vr in variant_results:
+                        # Regression: local FP/FN on this shard's repos exceeds
+                        # what's expected. Since baseline is global (all repos) and
+                        # the shard is a subset, we can't compare directly. Instead,
+                        # flag when baseline was 0 but local has FP/FN (new regression),
+                        # or when local FP/FN exceeds the global baseline (definitely worse).
+                        fp_regressed = (vr['fp'] > 0 and vr['baseline_fp'] == 0) or vr['fp'] > vr['baseline_fp']
+                        fn_regressed = (vr['fn'] > 0 and vr['baseline_fn'] == 0) or vr['fn'] > vr['baseline_fn']
+                        v_result = "fail" if fp_regressed or fn_regressed else "pass"
+                        marker = " ← REGRESSION" if v_result == "fail" else ""
                         print(
                             f"  {vr['style_label']:<30} "
                             f"{vr['nitrocop_total']:>8,} "
@@ -1496,20 +1507,24 @@ def main():
                             f"{vr['fp']:>6,} "
                             f"{vr['fn']:>6,}  "
                             f"{vr['baseline_fp']:>6,} "
-                            f"{vr['baseline_fn']:>6,}"
+                            f"{vr['baseline_fn']:>6,}{marker}"
                         )
-                        # Emit SUMMARY lines for CI PR comment (variant rows)
-                        v_result = "pass"
                         print(
                             f"SUMMARY|{args.cop} ({vr['style_label']})"
                             f"|{vr['baseline_fp']}|{vr['baseline_fn']}"
                             f"|{vr['fp']}|{vr['fn']}|{v_result}|0|0"
                         )
+                        if v_result == "fail":
+                            variant_failed = True
                     print()
+                    if variant_failed:
+                        print(f"FAIL: variant style regression detected for {args.cop}")
                 else:
                     print(f"  No variant overrides for {args.cop}")
                     print()
 
+        if variant_failed:
+            sys.exit(1)
         sys.exit(0)
 
     # Per-repo gate should have handled this — if we reach here, something is wrong

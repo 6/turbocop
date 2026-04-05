@@ -286,7 +286,7 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
             if total <= 0:
                 return "—"
             if count == total:
-                return f"**✓ {count:,}**"
+                return f"**{count:,} ✓**"
             return str(f"{count:,}")
 
         for row in rows:
