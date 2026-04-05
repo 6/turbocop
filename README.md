@@ -65,52 +65,52 @@ When tested with all style variants (e.g. `EnforcedStyle: comma`), 728 of 915 ma
 
 | Department | Cops | Exact match — default config | Exact match — all variants |
 |------------|-----:|----------------------:|---------------------------:|
-| Layout | 100 | 89 (89.0%) | 59 (59.0%) |
-| Lint | 148 | 145 (97.9%) | 141 (95.2%) |
-| Style | 287 | 268 (93.3%) | 221 (77.0%) |
-| Metrics | 10 | 10 (✓ 100.0%) | 10 (✓ 100.0%) |
-| Naming | 19 | 19 (✓ 100.0%) | 13 (68.4%) |
-| Security | 6 | 6 (✓ 100.0%) | 6 (✓ 100.0%) |
-| Bundler | 7 | 7 (✓ 100.0%) | 7 (✓ 100.0%) |
-| Gemspec | 10 | 10 (✓ 100.0%) | 9 (90.0%) |
-| Migration | 1 | 1 (✓ 100.0%) | 1 (✓ 100.0%) |
+| Layout | 100 | 89 | 59 |
+| Lint | 148 | 145 | 141 |
+| Style | 287 | 268 | 221 |
+| Metrics | 10 | **✓ 10** | **✓ 10** |
+| Naming | 19 | **✓ 19** | 13 |
+| Security | 6 | **✓ 6** | **✓ 6** |
+| Bundler | 7 | **✓ 7** | **✓ 7** |
+| Gemspec | 10 | **✓ 10** | 9 |
+| Migration | 1 | **✓ 1** | **✓ 1** |
 | **Total** | **588** | **555 (94.3%)** | **467 (79.4%)** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
 | Department | Cops | Exact match — default config | Exact match — all variants |
 |------------|-----:|----------------------:|---------------------------:|
-| Rails | 138 | 120 (86.9%) | 92 (66.6%) |
+| Rails | 138 | 120 | 92 |
 
 **[rubocop-performance](https://github.com/rubocop/rubocop-performance)** `1.26.1` (52 cops)
 
 | Department | Cops | Exact match — default config | Exact match — all variants |
 |------------|-----:|----------------------:|---------------------------:|
-| Performance | 52 | 52 (✓ 100.0%) | 52 (✓ 100.0%) |
+| Performance | 52 | **✓ 52** | **✓ 52** |
 
 **[rubocop-rspec](https://github.com/rubocop/rubocop-rspec)** `3.9.0` (113 cops)
 
 | Department | Cops | Exact match — default config | Exact match — all variants |
 |------------|-----:|----------------------:|---------------------------:|
-| RSpec | 113 | 113 (✓ 100.0%) | 100 (88.4%) |
+| RSpec | 113 | **✓ 113** | 100 |
 
 **[rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails)** `2.32.0` (8 cops)
 
 | Department | Cops | Exact match — default config | Exact match — all variants |
 |------------|-----:|----------------------:|---------------------------:|
-| RSpecRails | 8 | 8 (✓ 100.0%) | 5 (62.5%) |
+| RSpecRails | 8 | **✓ 8** | 5 |
 
 **[rubocop-factory_bot](https://github.com/rubocop/rubocop-factory_bot)** `2.28.0` (11 cops)
 
 | Department | Cops | Exact match — default config | Exact match — all variants |
 |------------|-----:|----------------------:|---------------------------:|
-| FactoryBot | 11 | 11 (✓ 100.0%) | 9 (81.8%) |
+| FactoryBot | 11 | **✓ 11** | 9 |
 
 **[rubocop-rake](https://github.com/rubocop/rubocop-rake)** `0.7.1` (5 cops)
 
 | Department | Cops | Exact match — default config | Exact match — all variants |
 |------------|-----:|----------------------:|---------------------------:|
-| Rake | 5 | 3 (60.0%) | 3 (60.0%) |
+| Rake | 5 | 3 | 3 |
 
 See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
 <!-- corpus-cops:end -->

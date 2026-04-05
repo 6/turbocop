@@ -282,27 +282,32 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         lines.append(hdr)
         lines.append(sep)
 
+        def _fmt_match(count: int, total: int) -> str:
+            if total <= 0:
+                return "—"
+            if count == total:
+                return f"**✓ {count:,}**"
+            return str(f"{count:,}")
+
         for row in rows:
             cops = row["cops"]
-            pct = format_exact_match_pct(row["perfect_cops"], cops)
-            cells = f"| {row['department']} | {cops:,} | {row['perfect_cops']:,} ({pct}) |"
+            cells = f"| {row['department']} | {cops:,} | {_fmt_match(row['perfect_cops'], cops)} |"
             if gem_has_variant:
                 vpc = row.get("variant_perfect_cops")
                 if vpc is not None:
-                    vpct = format_exact_match_pct(vpc, cops)
-                    cells += f" {vpc:,} ({vpct}) |"
+                    cells += f" {_fmt_match(vpc, cops)} |"
                 else:
-                    cells += " N/A |"
+                    cells += " — |"
             if no_data > 0:
                 cells += f" {row['no_data_cops']:,} |" if row["no_data_cops"] > 0 else " |"
             lines.append(cells)
 
         if len(rows) > 1:
-            pct = format_exact_match_pct(perfect, total)
+            pct = format_match_rate(perfect / total) if total > 0 else "N/A"
             cells = f"| **Total** | **{total:,}** | **{perfect:,} ({pct})** |"
             if gem_has_variant:
                 gem_vpc = sum(r.get("variant_perfect_cops", 0) for r in rows)
-                vpct = format_exact_match_pct(gem_vpc, total)
+                vpct = format_match_rate(gem_vpc / total) if total > 0 else "N/A"
                 cells += f" **{gem_vpc:,} ({vpct})** |"
             if no_data > 0:
                 cells += f" **{no_data:,}** |"

@@ -185,7 +185,7 @@ def test_write():
         assert "See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown." in updated
         assert "| Department | Cops | Exact match — default config |" in updated
         assert "**[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (9 cops)" in updated
-        assert "| Performance | 1 | 1 (✓ 100.0%) |" in updated
+        assert "| Performance | 1 | **✓ 1** |" in updated
         assert "| **Total** | **1** |" not in updated
         assert "Old generated cops section." not in updated
         assert "## Conformance" not in updated
