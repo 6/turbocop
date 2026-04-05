@@ -374,6 +374,28 @@ class MyModel
   end
 end
 
+# FP fix: block params inside def self body should not see outer block params
+class MyMapper
+  SOURCES.each do |attributes|
+    class_eval do
+      def self.lockbox_map_attributes(records)
+        records.map do |attributes|
+          attributes
+        end
+      end
+    end
+  end
+end
+
+# FP fix: block params inside singleton class body should not see outer block params
+items.each do |char|
+  class << self
+    methods_postfixes.each do |char|
+      char
+    end
+  end
+end
+
 # Corrected: block nested inside another block in else-branch of if.
 # RuboCop's variable_node(variable) returns variable.scope.node.parent
 # which is the choose block. The choose block IS if.else_branch, so
@@ -393,4 +415,3 @@ def get_login_info(sources)
     end
   end
 end
-
