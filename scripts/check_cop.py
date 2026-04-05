@@ -1472,7 +1472,7 @@ def main():
             # Collect cloned repo directories, capped for variant checks.
             # Variant bugs are systematic (wrong code path for a style), not
             # repo-specific edge cases, so a small sample catches them.
-            VARIANT_SAMPLE = 10
+            VARIANT_SAMPLE = 20
             corpus_dir = _CLONE_DIR
             repo_dirs = sorted(str(d) for d in corpus_dir.iterdir() if d.is_dir())
             if len(repo_dirs) > VARIANT_SAMPLE:
