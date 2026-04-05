@@ -265,55 +265,31 @@ jobs:
           merge-multiple: true
         continue-on-error: true
 
+      - uses: actions/checkout@v6
+        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
+
       - name: Comment cop-check summary on PR
+        id: comment
         if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          RESULT="${{ steps.gate.outputs.result }}"
-          ICON="✅"
-          [ "$RESULT" = "fail" ] && ICON="❌"
-
-          BODY="${ICON} **Cop-check results** (12 shards)\n\n"
-          BODY+="| Cop | Baseline FP | Baseline FN | Local FP | Local FN | FP Δ | FN Δ | Result |\n"
-          BODY+="|-----|-----------|-----------|--------|--------|------|------|--------|\n"
-
-          if [ -d summaries ]; then
-            for f in summaries/*.txt; do
-              [ -f "$f" ] || continue
-              while IFS='|' read -r cop bl_fp bl_fn local_fp local_fn shard_result count_bl_fp count_bl_fn; do
-                STATUS="✅"
-                [ "$shard_result" = "fail" ] && STATUS="❌"
-                fp_delta=$((local_fp - bl_fp))
-                fn_delta=$((local_fn - bl_fn))
-                # Show sign explicitly: +N for regressions, -N for improvements, 0 for unchanged
-                [ "$fp_delta" -gt 0 ] && fp_delta="+${fp_delta}"
-                [ "$fn_delta" -gt 0 ] && fn_delta="+${fn_delta}"
-                # Sanity check: if location-level FP regressed but count-level
-                # shows no excess, the regression is a location shift or config
-                # artifact, not extra offenses. Annotate the status to help triage.
-                NOTE=""
-                if [ -n "$count_bl_fp" ] && [ "$shard_result" = "fail" ]; then
-                  count_fp_delta=$((local_fp - count_bl_fp))
-                  if [ "$count_fp_delta" -le 0 ] && [ "$((local_fp - bl_fp))" -gt 0 ]; then
-                    NOTE=" ⚠️ count Δ=${count_fp_delta}"
-                  fi
-                fi
-                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${local_fp} | ${local_fn} | ${fp_delta} | ${fn_delta} | ${STATUS}${NOTE} |\n"
-              done < "$f"
-            done
-          else
-            BODY+="| (no shard data) | | | | | | | ${RESULT} |\n"
-          fi
-
-          if [ "$RESULT" = "pass" ]; then
-            BODY+="\nAll shards passed — ready to merge.\n"
-          else
-            BODY+="\nRegressions detected. The repair workflow will attempt an automatic fix.\n"
-          fi
-
-          printf "$BODY" | gh pr comment "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" --body-file -
+          SUMMARIES_DIR="summaries"
+          [ ! -d "$SUMMARIES_DIR" ] && SUMMARIES_DIR="/dev/null"
+          # Render comment to file first (always succeeds)
+          python3 scripts/workflows/render_cop_check_comment.py \
+            --summaries-dir "$SUMMARIES_DIR" \
+            --result "${{ steps.gate.outputs.result }}" \
+            > /tmp/cop-check-comment.md
+          # Post the comment
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file /tmp/cop-check-comment.md
+          # Now check for variant regressions (fails the step if found)
+          python3 scripts/workflows/render_cop_check_comment.py \
+            --summaries-dir "$SUMMARIES_DIR" \
+            --result "${{ steps.gate.outputs.result }}" \
+            --check-variant-regressions > /dev/null
 
   # Corpus smoke test: run nitrocop + rubocop on a few cheap sentinel repos to
   # catch systemic regressions (file discovery, config, plugin loading, directives)

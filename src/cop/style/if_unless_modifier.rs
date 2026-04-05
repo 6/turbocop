@@ -53,12 +53,16 @@ use ruby_prism::Visit;
 /// `value()` type in the visitor — only set found=true for
 /// LocalVariableReadNode or CallNode arguments.
 ///
-/// Remaining FN: `{ if user then body end }` (one-line if inside block)
-/// — the `}` after `end` is treated as "code after end", skipping the
-/// detection. Fixing this by allowing `}` would cause FPs for
-/// `#{if cond then val end}` inside string interpolation. Needs AST-level
-/// parent context check (e.g., detecting EmbeddedStatementsNode) to
-/// distinguish block closing from interpolation closing.
+/// FN root cause (2026-04-04): inline expression forms like
+/// `after_save { if user then body end }`,
+/// `options ||= unless cond ... end || fallback`,
+/// and `"...#{if cond then body end}"` were all being skipped by a blanket
+/// "any code after `end`" check. RuboCop only skips true chained receivers
+/// (`end.inspect`, `end + 2`), not enclosing delimiters or larger expressions.
+/// Fixed by allowing closing delimiters / `||` / `&&` after `end`, while still
+/// rejecting chained/operator continuations, then measuring the full rendered
+/// modifier line as RuboCop does: `code_before + expression + code_after`, with
+/// UTF-8 character counts instead of raw byte counts.
 pub struct IfUnlessModifier;
 
 /// Check if a node (or any descendant) contains a heredoc.
@@ -243,6 +247,117 @@ impl<'pr> Visit<'pr> for NestedConditionalFinder {
     fn visit_unless_node(&mut self, _node: &ruby_prism::UnlessNode<'pr>) {
         self.found = true;
     }
+}
+
+fn parenthesize_modifier_form(source: &SourceFile, kw_loc: &ruby_prism::Location<'_>) -> bool {
+    let (kw_line, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
+    let kw_line_start = kw_loc.start_offset().saturating_sub(kw_col);
+    let before_kw = &source.as_bytes()[kw_line_start..kw_loc.start_offset()];
+    let before_kw_trimmed = String::from_utf8_lossy(before_kw).trim_end().to_string();
+
+    if before_kw_trimmed.ends_with('=')
+        || before_kw_trimmed.ends_with(':')
+        || before_kw_trimmed.ends_with("=>")
+    {
+        return true;
+    }
+
+    if before_kw_trimmed.is_empty() && kw_line >= 2 {
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let prev_line = lines[kw_line - 2];
+        let prev_trimmed = String::from_utf8_lossy(prev_line).trim_end().to_string();
+        if prev_trimmed.ends_with('=')
+            || prev_trimmed.ends_with(':')
+            || prev_trimmed.ends_with("=>")
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn collection_context_prefix(prefix: &str) -> bool {
+    prefix.ends_with('(')
+        || prefix.ends_with('[')
+        || prefix.ends_with(',')
+        || prefix.ends_with(':')
+        || prefix.ends_with("=>")
+}
+
+fn single_line_direct_collection_context(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    kw_loc: &ruby_prism::Location<'_>,
+) -> bool {
+    let (kw_line, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
+    let node_end_off = node
+        .location()
+        .end_offset()
+        .saturating_sub(1)
+        .max(node.location().start_offset());
+    let (node_end_line, _) = source.offset_to_line_col(node_end_off);
+    if kw_line != node_end_line {
+        return false;
+    }
+
+    let kw_line_start = kw_loc.start_offset().saturating_sub(kw_col);
+    let before_kw = &source.as_bytes()[kw_line_start..kw_loc.start_offset()];
+    let before_kw_trimmed = String::from_utf8_lossy(before_kw).trim_end().to_string();
+    if collection_context_prefix(&before_kw_trimmed) {
+        return true;
+    }
+
+    if before_kw_trimmed.is_empty() && kw_line >= 2 {
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let prev_line = lines[kw_line - 2];
+        let prev_trimmed = String::from_utf8_lossy(prev_line).trim_end().to_string();
+        return collection_context_prefix(&prev_trimmed);
+    }
+
+    false
+}
+
+fn code_after_end_is_disallowed(after_end: &[u8]) -> bool {
+    let trimmed = after_end
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect::<Vec<_>>();
+
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.starts_with(b"#") {
+        return true;
+    }
+    if trimmed.starts_with(b"||")
+        || trimmed.starts_with(b"&&")
+        || trimmed.starts_with(b"or")
+        || trimmed.starts_with(b"and")
+    {
+        return false;
+    }
+
+    matches!(
+        trimmed[0],
+        b'.' | b'&'
+            | b'+'
+            | b'-'
+            | b'*'
+            | b'/'
+            | b'%'
+            | b'<'
+            | b'>'
+            | b'='
+            | b'!'
+            | b'|'
+            | b'^'
+            | b'~'
+            | b'?'
+            | b':'
+            | b';'
+    )
 }
 
 fn normalize_ruby_regex(pattern: &str) -> String {
@@ -456,14 +571,14 @@ fn comment_disables_this_cop(comment: &str) -> bool {
     false
 }
 
-fn first_line_comment_len(
+fn first_line_comment_text(
     source: &SourceFile,
     kw_line: usize,
     predicate: &ruby_prism::Node<'_>,
-) -> usize {
+) -> Option<String> {
     let lines: Vec<&[u8]> = source.lines().collect();
     if kw_line == 0 || kw_line > lines.len() {
-        return 0;
+        return None;
     }
 
     let kw_line_start = source.line_start_offset(kw_line);
@@ -473,7 +588,7 @@ fn first_line_comment_len(
         .saturating_sub(kw_line_start);
     let kw_line_bytes = lines[kw_line - 1];
     if predicate_end_in_line >= kw_line_bytes.len() {
-        return 0;
+        return None;
     }
 
     let after_predicate = &kw_line_bytes[predicate_end_in_line..];
@@ -483,22 +598,38 @@ fn first_line_comment_len(
         .skip_while(|&b| b == b' ' || b == b'\t')
         .collect::<Vec<_>>();
     if !trimmed.starts_with(b"#") {
-        return 0;
+        return None;
     }
 
     let comment = match std::str::from_utf8(&trimmed) {
         Ok(comment) => comment,
-        Err(_) => return 0,
+        Err(_) => return None,
     };
 
     // Only exclude comments that disable THIS cop (Style/IfUnlessModifier) or
     // all cops. Comments disabling OTHER cops carry over to the modifier form
     // and must be counted in the line length (matching RuboCop's behavior).
     if comment_disables_this_cop(comment) {
-        return 0;
+        return None;
     }
 
-    1 + comment.chars().count()
+    Some(comment.to_string())
+}
+
+fn code_after_end(source: &SourceFile, end_loc: ruby_prism::Location<'_>) -> Option<String> {
+    let (end_line, end_col) = source.offset_to_line_col(end_loc.start_offset());
+    let lines: Vec<&[u8]> = source.lines().collect();
+    if end_line == 0 || end_line > lines.len() {
+        return None;
+    }
+
+    let end_line_bytes = lines[end_line - 1];
+    let after_end_col = end_col + end_loc.as_slice().len();
+    if after_end_col >= end_line_bytes.len() {
+        return None;
+    }
+
+    Some(String::from_utf8_lossy(&end_line_bytes[after_end_col..]).into_owned())
 }
 
 impl Cop for IfUnlessModifier {
@@ -654,6 +785,10 @@ impl Cop for IfUnlessModifier {
             return;
         }
 
+        if single_line_direct_collection_context(source, node, &kw_loc) {
+            return;
+        }
+
         // If there are standalone comment lines between keyword and body, don't suggest
         // modifier form — converting would lose the comments. But blank lines and
         // multiline condition continuation lines are OK.
@@ -737,22 +872,14 @@ impl Cop for IfUnlessModifier {
                     }
                 }
 
-                // Check if the `end` line has a comment or code after `end`
-                // (chained calls, binary operators, etc.)
+                // Check if the `end` line has a comment or disallowed chained code.
                 let lines: Vec<&[u8]> = source.lines().collect();
                 if end_line > 0 && end_line <= lines.len() {
                     let end_line_bytes = lines[end_line - 1];
-                    let after_end_col = end_col + 3; // "end" is 3 bytes
+                    let after_end_col = end_col + end_loc.as_slice().len();
                     if after_end_col < end_line_bytes.len() {
                         let after_end = &end_line_bytes[after_end_col..];
-                        let trimmed = after_end
-                            .iter()
-                            .copied()
-                            .skip_while(|&b| b == b' ' || b == b'\t')
-                            .collect::<Vec<_>>();
-                        // Any non-empty content after `end` (comment or code) means
-                        // we can't simply convert to modifier form
-                        if !trimmed.is_empty() && trimmed[0] != b'\n' && trimmed[0] != b'\r' {
+                        if code_after_end_is_disallowed(after_end) {
                             return;
                         }
                     }
@@ -776,103 +903,49 @@ impl Cop for IfUnlessModifier {
         }
 
         let max_line_length = config.get_usize("MaxLineLength", 120);
-        // When MaxLineLength is 0, Layout/LineLength is disabled — skip line length check
-        // (matches RuboCop's behavior: return true unless max_line_length)
         let line_length_enabled = config.get_bool("LineLengthEnabled", max_line_length > 0);
 
-        // Estimate modifier line length: body + " " + keyword + " " + condition
-        let body_text = &source.as_bytes()
-            [body_node.location().start_offset()..body_node.location().end_offset()];
-        let cond_text = &source.as_bytes()
-            [predicate.location().start_offset()..predicate.location().end_offset()];
+        let kw_line_start = source.line_start_offset(kw_line);
+        let code_before =
+            String::from_utf8_lossy(&source.as_bytes()[kw_line_start..kw_loc.start_offset()])
+                .into_owned();
+        let body_text = String::from_utf8_lossy(
+            &source.as_bytes()
+                [body_node.location().start_offset()..body_node.location().end_offset()],
+        )
+        .into_owned();
+        let cond_text = String::from_utf8_lossy(
+            &source.as_bytes()
+                [predicate.location().start_offset()..predicate.location().end_offset()],
+        )
+        .into_owned();
 
-        // Include indentation in the modifier line length estimate.
-        // The modifier form `body keyword condition` would be placed at the
-        // indentation level of the original `if`/`unless` keyword, not at the
-        // body's (deeper) indentation.
-        let (_, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
+        let mut expression = format!("{body_text} {keyword} {cond_text}");
+        if parenthesize_modifier_form(source, &kw_loc) {
+            expression = format!("({expression})");
+        }
+        if let Some(comment) = first_line_comment_text(source, kw_line, &predicate) {
+            expression.push(' ');
+            expression.push_str(&comment);
+        }
 
-        // Account for tab expansion: the visual width of the indentation before
-        // the keyword may be wider than the byte count if tabs are used.
-        // RuboCop's `line_length` adds `indentation_difference` for leading tabs.
-        let indentation_width = config.get_usize("IndentationWidth", 2);
-        let tab_expansion = if indentation_width > 1 {
-            let kw_line_start = kw_loc.start_offset() - kw_col;
-            let before_kw = &source.as_bytes()[kw_line_start..kw_loc.start_offset()];
-            let leading_tabs = before_kw.iter().take_while(|&&b| b == b'\t').count();
-            leading_tabs * (indentation_width - 1)
+        let code_after = if let Some(if_node) = node.as_if_node() {
+            if_node
+                .end_keyword_loc()
+                .and_then(|loc| code_after_end(source, loc))
+        } else if let Some(unless_node) = node.as_unless_node() {
+            unless_node
+                .end_keyword_loc()
+                .and_then(|loc| code_after_end(source, loc))
         } else {
-            0
-        };
+            None
+        }
+        .unwrap_or_default();
 
-        // When the if/unless is used as the value of an assignment (e.g.,
-        // `x = if cond; body; end`), RuboCop's `parenthesize?` wraps the modifier
-        // form in parens: `x = (body if cond)`. This adds 2 chars to the line.
-        // Check if the line before the keyword contains an assignment operator.
-        let parens_overhead = {
-            let kw_line_start = kw_loc.start_offset() - kw_col;
-            let before_kw = &source.as_bytes()[kw_line_start..kw_loc.start_offset()];
-            // Check if the content before keyword on the same line is just whitespace;
-            // if not, it might contain assignment context. But the real case is when
-            // the assignment is on the PREVIOUS line (multi-line assignment).
-            // We check the previous non-blank line for a trailing `=`.
-            let before_kw_trimmed = before_kw
-                .iter()
-                .copied()
-                .filter(|&b| b != b' ' && b != b'\t')
-                .count();
-            if before_kw_trimmed == 0 && kw_line_start > 0 {
-                // Check the previous line for trailing `=`
-                let lines: Vec<&[u8]> = source.lines().collect();
-                let (kw_line_num, _) = source.offset_to_line_col(kw_loc.start_offset());
-                if kw_line_num >= 2 {
-                    let prev_line = lines[kw_line_num - 2];
-                    let trimmed = prev_line
-                        .iter()
-                        .copied()
-                        .rev()
-                        .skip_while(|&b| b == b' ' || b == b'\t')
-                        .collect::<Vec<_>>();
-                    if trimmed.first() == Some(&b'=') {
-                        2 // add 2 for parentheses: "(" and ")"
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                }
-            } else {
-                0
-            }
-        };
-
-        // For multiline conditions, normalize whitespace (newlines + runs of spaces)
-        // into single spaces to estimate the modifier form length accurately.
-        let cond_len = {
-            let mut len = 0usize;
-            let mut in_ws = false;
-            for &b in cond_text {
-                if b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' {
-                    if !in_ws {
-                        len += 1;
-                        in_ws = true;
-                    }
-                } else {
-                    len += 1;
-                    in_ws = false;
-                }
-            }
-            len
-        };
-        let modifier_len = kw_col
-            + tab_expansion
-            + parens_overhead
-            + body_text.len()
-            + 1
-            + keyword.len()
-            + 1
-            + cond_len
-            + first_line_comment_len(source, kw_line, &predicate);
+        let modifier_line = format!("{code_before}{expression}{code_after}");
+        let indentation_width = config.get_usize("IndentationWidth", 2);
+        let modifier_len = modifier_line.chars().count()
+            + indentation_difference(modifier_line.as_bytes(), indentation_width);
 
         if !line_length_enabled || modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
@@ -880,7 +953,9 @@ impl Cop for IfUnlessModifier {
                 source,
                 line,
                 column,
-                format!("Favor modifier `{keyword}` usage when having a single-line body."),
+                format!(
+                    "Favor modifier `{keyword}` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`."
+                ),
             ));
         }
     }
