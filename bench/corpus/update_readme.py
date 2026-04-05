@@ -242,7 +242,7 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         lines.append("")
     lines.append(
         "**Default** = default RuboCop config. "
-        "**All variants** = every supported `EnforcedStyle` value "
+        "**All variants** = every supported `EnforcedStyle` "
         "(e.g. `EnforcedStyle: comma`)."
     )
     lines.append("")

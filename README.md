@@ -54,7 +54,7 @@ Config auto-discovery walks up from the target directory to find `.rubocop.yml`.
 <!-- corpus-cops:start -->
 Compared with RuboCop on [**5,590 open-source repos**](docs/corpus.md) (590k Ruby files, 28.4M offenses compared).
 
-**Default** = default RuboCop config. **All variants** = every supported `EnforcedStyle` value (e.g. `EnforcedStyle: comma`).
+**Default** = default RuboCop config. **All variants** = every supported `EnforcedStyle` (e.g. `EnforcedStyle: comma`).
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
