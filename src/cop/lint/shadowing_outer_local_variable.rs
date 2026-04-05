@@ -25,6 +25,8 @@ struct ShadowingContext {
     when_body_ranges: Vec<(usize, usize, usize)>,
     assignment_rhs_ranges: Vec<(usize, usize, usize)>,
     block_body_ranges: Vec<(usize, usize, usize)>,
+    defs_local_scope_ranges: Vec<(usize, usize)>,
+    singleton_class_body_ranges: Vec<(usize, usize)>,
     /// Variable writes in branch bodies: (var_name, cond_offset, branch_offset, lhs_offset).
     /// Used to detect when a variable is assigned in multiple branches of the
     /// same conditional, which affects RHS-assignment suppression.
@@ -43,6 +45,8 @@ impl ShadowingContext {
             when_body_ranges: Vec::new(),
             assignment_rhs_ranges: Vec::new(),
             block_body_ranges: Vec::new(),
+            defs_local_scope_ranges: Vec::new(),
+            singleton_class_body_ranges: Vec::new(),
             branch_var_writes: Vec::new(),
         }
     }
@@ -180,6 +184,27 @@ impl ShadowingContext {
             .iter()
             .any(|(lhs, rhs_start, rhs_end)| {
                 *lhs == lhs_offset && *rhs_start <= param_offset && param_offset < *rhs_end
+            })
+    }
+
+    /// `def self.foo` and `class << self` are modeled as twisted scopes by
+    /// VariableForce so receiver expressions can be visited in the outer
+    /// scope, but local-variable visibility still stops at the method/class
+    /// body. For `defs`, method parameters are part of the inner local scope
+    /// even though they are declared before the body starts, so we track a
+    /// local-scope span (params + body) instead of only the body range.
+    fn is_separated_by_twisted_local_scope(
+        &self,
+        outer_offset: usize,
+        param_offset: usize,
+    ) -> bool {
+        self.defs_local_scope_ranges
+            .iter()
+            .chain(self.singleton_class_body_ranges.iter())
+            .any(|(start, end)| {
+                *start <= param_offset
+                    && param_offset < *end
+                    && !(*start <= outer_offset && outer_offset < *end)
             })
     }
 
@@ -328,11 +353,15 @@ impl ShadowingContext {
 ///    Fix: replaced `outer_in_branch_body` guard with targeted `has_sibling_branch_assignment`
 ///    check that tracks per-branch variable writes via the context collector.
 ///
-/// 4. **FP: `defs` (singleton method) params leaking through twisted scope.** Our VF
-///    models `def obj.method(param)` as a twisted scope, allowing `find_variable` to
-///    cross it. But Ruby treats `defs` as a hard scope for local variables, so block
-///    params inside a `defs` body should never shadow outer variables from the enclosing
-///    block. Fix: early return when `current_scope().kind == ScopeKind::Defs`.
+/// 4. **FP: `def self...` / `class << self` body leakage.** VariableForce keeps
+///    `defs` and singleton-class nodes twisted so receiver expressions stay in the
+///    outer scope, but local-variable visibility still stops at the body boundary.
+///    Block params inside those bodies were incorrectly seeing outer locals from
+///    the enclosing block. The subtlety is that `def self.foo(arg)` method
+///    params are inside the method's local scope even though their declaration
+///    offsets sit before the body. Fix: track a `defs` local-scope span
+///    (params + body) plus singleton-class body ranges, and suppress only when
+///    the match crosses those boundaries.
 ///
 /// ## Migration to VariableForce
 ///
@@ -441,6 +470,8 @@ impl Cop for ShadowingOuterLocalVariable {
             when_body_ranges: Vec::new(),
             assignment_rhs_ranges: Vec::new(),
             block_body_ranges: Vec::new(),
+            defs_local_scope_ranges: Vec::new(),
+            singleton_class_body_ranges: Vec::new(),
             branch_var_writes: Vec::new(),
             conditional_branch_stack: Vec::new(),
             when_condition_case_offset: None,
@@ -461,6 +492,8 @@ impl Cop for ShadowingOuterLocalVariable {
             ctx.when_body_ranges = collector.when_body_ranges;
             ctx.assignment_rhs_ranges = collector.assignment_rhs_ranges;
             ctx.block_body_ranges = collector.block_body_ranges;
+            ctx.defs_local_scope_ranges = collector.defs_local_scope_ranges;
+            ctx.singleton_class_body_ranges = collector.singleton_class_body_ranges;
             ctx.branch_var_writes = collector.branch_var_writes;
         });
     }
@@ -503,16 +536,13 @@ impl variable_force::VariableForceConsumer for ShadowingOuterLocalVariable {
             return;
         }
 
-        // Check if there's an outer variable with the same name.
-        // find_variable walks the scope stack respecting hard boundaries,
-        // so it naturally handles def/class/module isolation.
-        let outer = variable_table.find_variable(name);
-        let Some(outer_var) = outer else {
+        let param_offset = variable.declaration_offset;
+        let outer_offset = variable_table
+            .find_variable(name)
+            .map(|var| var.declaration_offset);
+        let Some(outer_offset) = outer_offset else {
             return;
         };
-
-        let param_offset = variable.declaration_offset;
-        let outer_offset = outer_var.declaration_offset;
 
         // Check suppression conditions using thread-local context data.
         let should_flag = SHADOWING_CTX.with(|cell| {
@@ -520,6 +550,10 @@ impl variable_force::VariableForceConsumer for ShadowingOuterLocalVariable {
 
             // Check if we're inside a Ractor.new block — shadowing is intentional
             if ctx.is_in_ractor_block(param_offset) {
+                return false;
+            }
+
+            if ctx.is_separated_by_twisted_local_scope(outer_offset, param_offset) {
                 return false;
             }
 
@@ -641,6 +675,8 @@ struct ContextCollector {
     when_body_ranges: Vec<(usize, usize, usize)>,
     assignment_rhs_ranges: Vec<(usize, usize, usize)>,
     block_body_ranges: Vec<(usize, usize, usize)>,
+    defs_local_scope_ranges: Vec<(usize, usize)>,
+    singleton_class_body_ranges: Vec<(usize, usize)>,
     branch_var_writes: Vec<(Vec<u8>, usize, usize, usize)>,
 
     // Tracking state
@@ -829,6 +865,55 @@ impl ContextCollector {
 }
 
 impl<'pr> Visit<'pr> for ContextCollector {
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+
+        if node.receiver().is_some() {
+            let scope_start = node
+                .parameters()
+                .map(|params| params.location().start_offset())
+                .or_else(|| node.body().map(|body| body.location().start_offset()));
+            if let Some(scope_start) = scope_start {
+                self.defs_local_scope_ranges
+                    .push((scope_start, node.location().end_offset()));
+            }
+        }
+
+        if let Some(parameters) = node.parameters() {
+            self.visit_parameters_node(&parameters);
+        }
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+    }
+
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        if let Some(superclass) = node.superclass() {
+            self.visit(&superclass);
+        }
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        self.visit(&node.expression());
+
+        if let Some(body) = node.body() {
+            self.singleton_class_body_ranges
+                .push((body.location().start_offset(), body.location().end_offset()));
+            self.visit(&body);
+        }
+    }
+
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         // Detect Ractor.new blocks
         if is_ractor_new_call(node) {
@@ -1253,11 +1338,6 @@ impl<'pr> Visit<'pr> for ContextCollector {
             self.pop_branch();
         }
     }
-
-    // Don't need to override def/class/module — the context collector
-    // only cares about conditional branches, not scope management.
-    // VF handles scopes. But we DO need to enter them to find conditionals
-    // inside method bodies.
 }
 
 /// Check if a CallNode is `Ractor.new(...)` or `::Ractor.new(...)`.

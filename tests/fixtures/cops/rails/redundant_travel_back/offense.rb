@@ -39,3 +39,6 @@ RSpec.configure do |config|
   config.after { travel_back }
                  ^^^^^^^^^^^ Rails/RedundantTravelBack: Redundant `travel_back` detected. It is automatically called after each test.
 end
+
+after { travel_back }
+        ^^^^^^^^^^^ Rails/RedundantTravelBack: Redundant `travel_back` detected. It is automatically called after each test.

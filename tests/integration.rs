@@ -3496,8 +3496,8 @@ fn redundant_disable_running_cop_no_offense_flagged_in_normal_mode() {
 fn no_redundant_disable_for_skip_list_cop_in_normal_mode() {
     // Cops in REDUNDANT_DISABLE_SKIP_COPS have known detection gaps.
     // Even in normal mode, their unused directives should NOT be flagged.
-    // Security/YAMLLoad is a permanent stub (never fires), so it's the
-    // most stable choice — it will always remain on the skip list.
+    // Under the default TargetRubyVersion (2.7), Security/YAMLLoad still
+    // stays on the conservative skip list.
     let dir = temp_dir("redundant_disable_skip_list");
     let file = write_file(
         &dir,
@@ -3525,6 +3525,92 @@ fn no_redundant_disable_for_skip_list_cop_in_normal_mode() {
     assert!(
         redundant.is_empty(),
         "Should NOT flag disable for a skip-list cop, got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn redundant_disable_inline_yaml_load_for_ruby_3_1_and_newer() {
+    let dir = temp_dir("redundant_disable_inline_yaml_load_31");
+    write_file(
+        &dir,
+        ".rubocop.yml",
+        b"AllCops:\n  TargetRubyVersion: 3.1\n",
+    );
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nYAML.load(data) # rubocop:disable Security/YAMLLoad\n",
+    );
+    let config = load_config(None, Some(&dir), None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Should flag inline YAMLLoad disable on Ruby 3.1+, got: {:?}",
+        redundant
+    );
+    assert!(
+        redundant[0].message.contains("Security/YAMLLoad"),
+        "Message should mention the cop: {}",
+        redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_for_block_yaml_load_on_ruby_3_1_and_newer() {
+    let dir = temp_dir("redundant_disable_block_yaml_load_31");
+    write_file(
+        &dir,
+        ".rubocop.yml",
+        b"AllCops:\n  TargetRubyVersion: 3.1\n",
+    );
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\n# rubocop:disable Security/YAMLLoad\nYAML.load(data)\n# rubocop:enable Security/YAMLLoad\n",
+    );
+    let config = load_config(None, Some(&dir), None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Should keep block YAMLLoad disable conservative on Ruby 3.1+, got: {:?}",
         redundant
     );
 

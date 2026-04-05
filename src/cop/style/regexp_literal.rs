@@ -18,6 +18,13 @@ use ruby_prism::Visit;
 /// interpolated `%r` literals must still be flagged, so the exemption remains
 /// limited to direct call-like arguments while switching the prefix check to
 /// the string-part content RuboCop uses.
+///
+/// FP fix (2026-04): `%r/#{column_name} .../ =~ value` from Rails was still
+/// flagged even though RuboCop accepts it. The same parser-visible leading
+/// space rule also applies when the regexp is the receiver of a call node
+/// such as `=~`, not only when it appears inside an argument list. Fixed by
+/// extending the existing call-context exemption to direct call parents while
+/// still rejecting standalone `%r/#{foo} bar/`.
 pub struct RegexpLiteral;
 
 impl Cop for RegexpLiteral {
@@ -108,8 +115,8 @@ impl<'pr> RegexpLiteralVisitor<'_, 'pr> {
         //   do_something / regexp/    # syntax error
         let content_starts_with_space_or_eq =
             !content_bytes.is_empty() && (content_bytes[0] == b' ' || content_bytes[0] == b'=');
-        let allowed_percent_r_call_argument =
-            content_starts_with_space_or_eq && self.direct_call_like_argument(node_start, node_end);
+        let allowed_percent_r_call_context = content_starts_with_space_or_eq
+            && self.allowed_percent_r_call_context(node_start, node_end);
 
         match enforced_style {
             "slashes" => {
@@ -117,7 +124,7 @@ impl<'pr> RegexpLiteralVisitor<'_, 'pr> {
                     if has_slash && !allow_inner_slashes {
                         return;
                     }
-                    if allowed_percent_r_call_argument {
+                    if allowed_percent_r_call_context {
                         return;
                     }
                     self.add_offense(node_start, "Use `//` around regular expression.");
@@ -137,7 +144,7 @@ impl<'pr> RegexpLiteralVisitor<'_, 'pr> {
                     if has_slash && !allow_inner_slashes {
                         return;
                     }
-                    if allowed_percent_r_call_argument {
+                    if allowed_percent_r_call_context {
                         return;
                     }
                     self.add_offense(node_start, "Use `//` around regular expression.");
@@ -151,12 +158,19 @@ impl<'pr> RegexpLiteralVisitor<'_, 'pr> {
         }
     }
 
-    fn direct_call_like_argument(&self, node_start: usize, node_end: usize) -> bool {
+    fn allowed_percent_r_call_context(&self, node_start: usize, node_end: usize) -> bool {
         let Some(parent) = self.ancestors.last() else {
             return false;
         };
 
         if let Some(call) = parent.as_call_node() {
+            if call.receiver().is_some_and(|receiver| {
+                let loc = receiver.location();
+                loc.start_offset() == node_start && loc.end_offset() == node_end
+            }) {
+                return true;
+            }
+
             return call.arguments().is_some_and(|args| {
                 args.arguments().iter().any(|arg| {
                     let loc = arg.location();
@@ -224,5 +238,14 @@ impl<'pr> Visit<'pr> for RegexpLiteralVisitor<'_, 'pr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::run_cop_full;
+
     crate::cop_fixture_tests!(RegexpLiteral, "cops/style/regexp_literal");
+
+    #[test]
+    fn percent_r_with_effective_leading_space_is_allowed_as_match_receiver() {
+        let source = b"if %r/#{foo} bar/ =~ baz\n  nil\nend\n";
+        let diags = run_cop_full(&RegexpLiteral, source);
+        assert!(diags.is_empty());
+    }
 }

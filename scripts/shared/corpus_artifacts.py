@@ -165,6 +165,7 @@ def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
         cache_path = _cache_dir() / f"corpus-results-{run_id}.json"
         shutil.copy2(path, cache_path)
         _cache_synthetic_from_dir(Path(tmpdir), run_id)
+        _cache_variant_results_from_dir(Path(tmpdir), run_id)
 
         print(f"Downloaded corpus-report from run {run_id} via gh", file=sys.stderr)
         return cache_path, run_id, head_sha
@@ -298,6 +299,7 @@ def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
                 with zf.open("corpus-results.json") as f:
                     cache_path.write_bytes(f.read())
                 _cache_synthetic_from_zip(zf, run_id)
+                _cache_variant_results_from_zip(zf, run_id)
         except zipfile.BadZipFile:
             continue
 
@@ -458,6 +460,35 @@ def _cache_synthetic_from_zip(zf: zipfile.ZipFile, run_id: int) -> None:
                 dest.write_bytes(f.read())
             print("Cached synthetic-results.json from artifact", file=sys.stderr)
             return
+
+
+def _cache_variant_results_from_dir(tmpdir: Path, run_id: int) -> None:
+    """Cache style-variant-results.json from a gh-downloaded artifact directory."""
+    for candidate in [
+        tmpdir / "style-variant-results.json",
+    ]:
+        if candidate.exists():
+            dest = _cache_dir() / f"style-variant-results-{run_id}.json"
+            shutil.copy2(candidate, dest)
+            print("Cached style-variant-results.json from artifact", file=sys.stderr)
+            return
+
+
+def _cache_variant_results_from_zip(zf: zipfile.ZipFile, run_id: int) -> None:
+    """Cache style-variant-results.json from an artifact zip."""
+    for name in zf.namelist():
+        if name.endswith("style-variant-results.json"):
+            dest = _cache_dir() / f"style-variant-results-{run_id}.json"
+            with zf.open(name) as f:
+                dest.write_bytes(f.read())
+            print("Cached style-variant-results.json from artifact", file=sys.stderr)
+            return
+
+
+def get_variant_results_path(run_id: int) -> Path | None:
+    """Return the cached style-variant-results.json path for a given run, if available."""
+    path = _cache_dir() / f"style-variant-results-{run_id}.json"
+    return path if path.exists() else None
 
 
 def get_synthetic_results_path(run_id: int) -> Path | None:

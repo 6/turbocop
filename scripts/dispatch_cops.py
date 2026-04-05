@@ -490,7 +490,109 @@ def get_corpus_data(
         "fn_examples": cop_entry.get("fn_examples", []),
         "repo_breakdown": repo_breakdown,
         "available": True,
+        "variants": [],  # populated later by caller if needed
     }
+
+
+def load_variant_data_for_cop(cop: str, run_id: int | str | None = None) -> list[dict]:
+    """Load per-style variant divergence data for a cop.
+
+    Returns list of {style_label, matches, fp, fn} for each variant
+    that includes the cop. Empty list if no variant data available.
+    """
+    from shared.corpus_artifacts import get_variant_results_path
+    if run_id is None:
+        # Try to get run_id from the latest download
+        try:
+            _, rid, _ = _download_corpus()
+            run_id = rid
+        except Exception:
+            return []
+    path = get_variant_results_path(int(run_id)) if run_id else None
+    if not path:
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    variants = []
+    for batch in data.get("batches", []):
+        for cop_entry in batch.get("by_cop", []):
+            if cop_entry.get("cop") == cop:
+                variants.append({
+                    "style_label": cop_entry.get("style_label", batch.get("name", "?")),
+                    "matches": cop_entry.get("matches", 0),
+                    "fp": cop_entry.get("fp", 0),
+                    "fn": cop_entry.get("fn", 0),
+                })
+    return variants
+
+
+def load_variant_only_candidates(
+    data: dict,
+    department: str | None,
+    already_ranked: set[str],
+) -> list[dict]:
+    """Find cops that are perfect in default config but diverge in variants.
+
+    Returns rank-compatible dicts for cops not already in the ranked set.
+    These cops have code_bugs=0 (no default examples to diagnose) but
+    variant_fp/variant_fn > 0.
+    """
+    by_cop_index = {e["cop"]: e for e in data.get("by_cop", [])}
+    candidates = []
+
+    # Load variant data from the latest corpus run
+    try:
+        _, run_id, _ = _download_corpus()
+    except Exception:
+        return []
+    from shared.corpus_artifacts import get_variant_results_path
+    variant_path = get_variant_results_path(int(run_id)) if run_id else None
+    if not variant_path:
+        return []
+
+    try:
+        vdata = json.loads(variant_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    # Aggregate variant FP/FN per cop
+    variant_totals: dict[str, dict] = {}
+    for batch in vdata.get("batches", []):
+        for cop_entry in batch.get("by_cop", []):
+            cn = cop_entry.get("cop", "")
+            if not cn:
+                continue
+            vt = variant_totals.setdefault(cn, {"fp": 0, "fn": 0})
+            vt["fp"] += cop_entry.get("fp", 0)
+            vt["fn"] += cop_entry.get("fn", 0)
+
+    for cop_name, vt in sorted(variant_totals.items()):
+        if cop_name in already_ranked:
+            continue
+        if department and not cop_name.startswith(department + "/"):
+            continue
+        if vt["fp"] + vt["fn"] == 0:
+            continue
+        # Only include cops that are perfect in default (otherwise they'd
+        # already be in the ranked set from the default loop)
+        default_entry = by_cop_index.get(cop_name, {})
+        if default_entry.get("fp", 0) + default_entry.get("fn", 0) > 0:
+            continue
+
+        candidates.append({
+            "cop": cop_name,
+            "fp": 0,
+            "fn": 0,
+            "variant_fp": vt["fp"],
+            "variant_fn": vt["fn"],
+            "code_bugs": 0,
+            "config_issues": 0,
+            "matches": default_entry.get("matches", 0),
+        })
+
+    return candidates
 
 
 def safe_get_corpus_data(
@@ -1417,16 +1519,40 @@ def generate_task(
     parts = []
 
     # Header
-    parts.append(f"# Fix {cop} — {corpus['fp']} FP, {corpus['fn']} FN\n")
+    # Load variant data early for title/framing
+    variants = load_variant_data_for_cop(cop)
+    diverging_variants = [v for v in variants if v["fp"] + v["fn"] > 0]
+    default_perfect = corpus.get("fp", 0) + corpus.get("fn", 0) == 0
+    variant_fp = sum(v["fp"] for v in diverging_variants)
+    variant_fn = sum(v["fn"] for v in diverging_variants)
+
+    if default_perfect and diverging_variants:
+        parts.append(f"# Fix {cop} — variant divergence: {variant_fp:,} FP, {variant_fn:,} FN\n")
+    else:
+        parts.append(f"# Fix {cop} — {corpus['fp']} FP, {corpus['fn']} FN\n")
 
     # Instructions
-    focus = "FP" if corpus["fp"] > corpus["fn"] else "FN" if corpus["fn"] > corpus["fp"] else "both FP and FN"
+    if default_perfect and diverging_variants:
+        focus = "variant style divergence"
+        focus_detail = (
+            "default config is perfect — the issue is with non-default "
+            "`EnforcedStyle` values"
+        )
+    elif corpus["fp"] > corpus["fn"]:
+        focus = "FP"
+        focus_detail = "nitrocop flags code RuboCop does not"
+    elif corpus["fn"] > corpus["fp"]:
+        focus = "FN"
+        focus_detail = "RuboCop flags code nitrocop misses"
+    else:
+        focus = "both FP and FN"
+        focus_detail = "both directions"
     parts.append(f"""## Instructions
 
 You are fixing ONE cop in **nitrocop**, a Rust Ruby linter that uses Prism for parsing.
 
 **Current state:** {corpus['matches']:,} matches, {corpus['fp']} false positives, {corpus['fn']} false negatives.
-**Focus on:** {focus} ({"nitrocop flags code RuboCop does not" if corpus["fp"] > corpus["fn"] else "RuboCop flags code nitrocop misses" if corpus["fn"] > corpus["fp"] else "both directions"}).
+**Focus on:** {focus} ({focus_detail}).
 
 **⚠ {corpus['matches']:,} existing matches must not regress.** Validate with `check_cop.py` before committing.
 
@@ -1609,6 +1735,23 @@ forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
         parts.append(f"## Current Fixture: no_offense.rb\n`tests/fixtures/cops/{dept_snake}/{snake}/no_offense.rb`\n")
         parts.append(f"```ruby\n{no_offense_fixture}```\n")
 
+    # Include variant fixture files if they exist
+    fixture_dir = PROJECT_ROOT / "tests" / "fixtures" / "cops" / dept_snake / snake
+    if fixture_dir.exists():
+        variant_fixtures = sorted(
+            f for f in fixture_dir.iterdir()
+            if f.suffix == ".rb" and f.name not in ("offense.rb", "no_offense.rb")
+            and ("offense." in f.name or "no_offense." in f.name)
+        )
+        if variant_fixtures:
+            parts.append("## Existing Variant Fixtures\n")
+            for vf in variant_fixtures:
+                content = read_file_safe(vf)
+                if content:
+                    rel = vf.relative_to(PROJECT_ROOT)
+                    parts.append(f"### `{rel}`\n")
+                    parts.append(f"```ruby\n{content}```\n")
+
     # Large source files — just reference paths, the agent can read them
     parts.append("## Key Source Files\n")
     parts.append(f"- Rust implementation: `{rust_path.relative_to(PROJECT_ROOT)}`")
@@ -1619,24 +1762,83 @@ forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
     parts.append("")
     parts.append("Read these files before making changes.\n")
 
+    # For variant-only cops (default perfect), put variant section first
+    # as it's the primary task. For mixed cops, put it after default data.
+    def _variant_section() -> list[str]:
+        if not diverging_variants:
+            return []
+        lines = ["## Style Variant Divergence\n"]
+        if default_perfect:
+            lines.append(
+                "**The default config is already perfect.** Your task is fixing "
+                "non-default style variants listed below.\n"
+            )
+        else:
+            lines.append(
+                "This cop also has divergence under non-default style configurations.\n"
+            )
+        lines.append("| Style | Matches | FP | FN |")
+        lines.append("|-------|--------:|---:|---:|")
+        for v in sorted(diverging_variants, key=lambda x: x["fp"] + x["fn"], reverse=True):
+            lines.append(
+                f"| {v['style_label']} | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} |"
+            )
+        lines.append("")
+        lines.append("### How to fix variant divergence\n")
+        lines.append(
+            "1. **Find the config read:** Look for `config.get_str(\"EnforcedStyle\", ...)` or "
+            "similar `Enforced*` reads in the Rust source. The cop should branch on the "
+            "configured style value.\n"
+        )
+        lines.append(
+            "2. **Check the RuboCop Ruby source** for how each style value changes behavior. "
+            "The ground truth is in the vendored Ruby cop file.\n"
+        )
+        lines.append(
+            "3. **Add fixture tests** for each broken variant. Use the `# nitrocop-config:` "
+            "directive at the top of fixture files:\n"
+            "```ruby\n"
+            "# nitrocop-config: EnforcedStyle: comma\n"
+            "# ^^^ offense annotation here\n"
+            "trailing_comma_example(a, b,)\n"
+            "```\n"
+        )
+        lines.append(
+            "4. **Validate locally** with `check_cop.py --style`:\n"
+            f"```bash\n"
+            f"python3 scripts/check_cop.py {cop} --rerun --clone --sample 15 "
+            f"--style EnforcedStyle=<value>\n"
+            f"```\n"
+        )
+        lines.append(
+            "5. **All variants must pass.** The CI gate (`--check-variants`) runs ALL "
+            "variant styles automatically. Fixing one variant must not break another.\n"
+        )
+        return lines
+
     start_here = build_start_here_section(cop, corpus)
     if start_here:
         parts.append(start_here)
+
+    # Variant-only cops: variant section comes first (it's the primary task)
+    if default_perfect and diverging_variants:
+        parts.extend(_variant_section())
 
     # Pre-diagnostic results (high-value: before source code)
     if diagnostics:
         parts.append("## Pre-diagnostic Results\n")
         parts.append(format_corpus_section(cop, corpus, diagnostics))
         parts.append("")
-    else:
-        # No diagnostics — put corpus examples in the usual place (at the end)
-        pass
 
     # Corpus data (without diagnostics, for fallback)
-    if not diagnostics:
+    if not diagnostics and not default_perfect:
         parts.append("## Corpus FP/FN Examples\n")
         parts.append(format_corpus_section(cop, corpus, None))
         parts.append("")
+
+    # Mixed cops: variant section comes after default data
+    if not default_perfect and diverging_variants:
+        parts.extend(_variant_section())
 
     return "\n".join(parts)
 
@@ -2083,6 +2285,7 @@ def render_issue_body(
     corpus_kind: str,
     run_id: str | None,
     head_sha: str | None,
+    variant_entries: list[dict] | None = None,
 ) -> str:
     fp = entry.get("fp", 0)
     fn = entry.get("fn", 0)
@@ -2093,7 +2296,7 @@ def render_issue_body(
         "",
         "This issue is managed by the corpus dispatch backlog automation.",
         "",
-        "## Corpus Status",
+        "## Corpus Status (default config)",
         "",
         f"- Cop: `{cop}`",
         f"- Corpus: `{corpus_kind}`",
@@ -2110,11 +2313,37 @@ def render_issue_body(
         lines.append(f"- Corpus head SHA: `{head_sha}`")
     if open_pr:
         lines.append(f"- Open bot PR: #{open_pr['number']} ({open_pr['url']})")
+
+    # Variant divergence section
+    diverging_variants = [
+        v for v in (variant_entries or [])
+        if v.get("fp", 0) + v.get("fn", 0) > 0
+    ]
+    if diverging_variants:
+        lines.extend([
+            "",
+            "## Style Variant Divergence",
+            "",
+        ])
+        if total == 0:
+            lines.append("Default config is perfect. Divergence is in non-default styles only:")
+        else:
+            lines.append("Additional divergence under non-default styles:")
+        lines.extend([
+            "",
+            "| Style | Matches | FP | FN |",
+            "|-------|--------:|---:|---:|",
+        ])
+        for v in sorted(diverging_variants, key=lambda x: x["fp"] + x["fn"], reverse=True):
+            lines.append(
+                f"| {v.get('style_label', '?')} | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} |"
+            )
+
     lines.extend([
         "",
         "## Automation Notes",
         "",
-        "- This issue stays open while the cop still diverges or a bot PR is active.",
+        "- This issue stays open while the cop still diverges (default or variant) or a bot PR is active.",
         "- If a later corpus run shows the cop diverging again after merge, this same issue should be reopened and reused.",
         "",
         render_tracker_marker(cop, fp, fn, matches, difficulty),
@@ -2480,6 +2709,29 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
     binary = args.binary.resolve() if args.binary else None
     diverging_cops = {cop for cop, entry in entries.items() if total_for_entry(entry) > 0}
 
+    # Expand diverging set with variant-only divergence: cops that are
+    # perfect in default config but broken under non-default styles.
+    variant_diverging: dict[str, list[dict]] = {}  # cop -> variant entries
+    from shared.corpus_artifacts import get_variant_results_path
+    variant_path = get_variant_results_path(int(run_id)) if run_id else None
+    if variant_path:
+        try:
+            vdata = json.loads(variant_path.read_text())
+            for batch in vdata.get("batches", []):
+                for cop_entry in batch.get("by_cop", []):
+                    cn = cop_entry.get("cop", "")
+                    if cn and cop_entry.get("fp", 0) + cop_entry.get("fn", 0) > 0:
+                        variant_diverging.setdefault(cn, []).append(cop_entry)
+        except (json.JSONDecodeError, OSError):
+            pass
+    variant_only_cops = set(variant_diverging.keys()) - diverging_cops
+    if variant_only_cops:
+        print(
+            f"  {len(variant_only_cops)} cops diverge only in style variants",
+            file=sys.stderr,
+        )
+    diverging_cops |= variant_only_cops
+
     # Filter by department if requested
     dept_filter = args.department
     if dept_filter:
@@ -2564,6 +2816,7 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
             corpus_kind=corpus_kind,
             run_id=run_id,
             head_sha=head_sha,
+            variant_entries=variant_diverging.get(cop, []),
         )
 
         if existing_issue is None:
@@ -2852,7 +3105,16 @@ def main():
                     "matches": entry.get("matches", 0),
                 })
 
-        # Sort: highest code-bug ratio first, then lowest total divergence, then name
+        # Add variant-only diverging cops (perfect in default, broken in variants).
+        # These are skipped by the default loop (total < 1) but are real work.
+        ranked_cops = {r["cop"] for r in results}
+        variant_candidates = load_variant_only_candidates(
+            data, args.department, ranked_cops)
+        results.extend(variant_candidates)
+
+        # Sort: highest code-bug ratio first, then lowest total divergence, then name.
+        # Variant-only cops have code_bugs=0 so they sort to the end — dispatched
+        # only after all default-diverging cops are handled.
         results.sort(key=lambda r: (-r["code_bugs"] / max(r["code_bugs"] + r["config_issues"], 1),
                                      r["fp"] + r["fn"],
                                      r["cop"]))
@@ -2863,12 +3125,15 @@ def main():
             json.dump(results, sys.stdout, indent=2)
             sys.stdout.write("\n")
         else:
-            print(f"\n{'Cop':<42} {'FP':>3} {'FN':>3} {'Bugs':>4} {'Cfg':>4} {'Matches':>7}")
-            print("-" * 68)
+            print(f"\n{'Cop':<42} {'FP':>3} {'FN':>3} {'Bugs':>4} {'Cfg':>4} {'Matches':>7} {'Var':>5}")
+            print("-" * 75)
             for result in results:
+                var_total = result.get("variant_fp", 0) + result.get("variant_fn", 0)
+                var_str = str(var_total) if var_total > 0 else ""
                 print(
                     f"{result['cop']:<42} {result['fp']:>3} {result['fn']:>3} "
-                    f"{result['code_bugs']:>4} {result['config_issues']:>4} {result['matches']:>7}"
+                    f"{result['code_bugs']:>4} {result['config_issues']:>4} "
+                    f"{result['matches']:>7} {var_str:>5}"
                 )
             print(f"\n{len(results)} cops with {args.min_bugs}+ code bugs", file=sys.stderr)
         return

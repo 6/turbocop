@@ -34,6 +34,12 @@ const MSG: &str = "Use the return of the conditional for variable assignment and
 /// `message << ...` and `this_sig_lines << ...`. Prism represents those as
 /// `CallNode`s, not write nodes, so they needed the same target-key handling
 /// as setter/index assignments.
+///
+/// FN reduction (2026-04-04): Prism also uses dedicated node types for
+/// compound writes on calls and indexes, e.g. `foo.bar ||=`, `foo.bar +=`,
+/// `foo[bar] ||=`, and `foo[bar] +=`. Those do not come through as `CallNode`
+/// or variable write nodes, so this cop must derive stable target keys from
+/// the receiver, method/index, and operator to match RuboCop.
 pub struct ConditionalAssignment;
 
 impl Cop for ConditionalAssignment {
@@ -433,6 +439,58 @@ struct AssignInfo {
     lhs_text: String, // e.g. "x = ", "@foo = ", "obj.method = "
 }
 
+fn node_source(node: ruby_prism::Node<'_>) -> String {
+    String::from_utf8_lossy(node.location().as_slice()).to_string()
+}
+
+fn node_source_ref(node: &ruby_prism::Node<'_>) -> String {
+    String::from_utf8_lossy(node.location().as_slice()).to_string()
+}
+
+fn receiver_source(receiver: Option<ruby_prism::Node<'_>>) -> String {
+    receiver.map_or(String::new(), node_source)
+}
+
+fn call_target_source(receiver: Option<ruby_prism::Node<'_>>, method_name: &[u8]) -> String {
+    let receiver = receiver_source(receiver);
+    let method_name = String::from_utf8_lossy(method_name);
+    if receiver.is_empty() {
+        method_name.to_string()
+    } else {
+        format!("{}.{}", receiver, method_name)
+    }
+}
+
+fn index_target_source(
+    receiver: Option<ruby_prism::Node<'_>>,
+    args: Option<ruby_prism::ArgumentsNode<'_>>,
+    drop_last_argument: bool,
+) -> Option<String> {
+    let args = args?;
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+    let end = if drop_last_argument {
+        arg_list.len().checked_sub(1)?
+    } else {
+        arg_list.len()
+    };
+    if end == 0 {
+        return None;
+    }
+
+    let receiver = receiver_source(receiver);
+    let indices = arg_list[..end]
+        .iter()
+        .map(node_source_ref)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    if receiver.is_empty() {
+        Some(format!("[{}]", indices))
+    } else {
+        Some(format!("{}[{}]", receiver, indices))
+    }
+}
+
 fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
     if let Some(w) = node.as_local_variable_write_node() {
         let name = String::from_utf8_lossy(w.name().as_slice());
@@ -469,6 +527,13 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
             lhs_text: format!("{} = ", name),
         });
     }
+    if let Some(w) = node.as_constant_path_write_node() {
+        let target = String::from_utf8_lossy(w.target().location().as_slice()).to_string();
+        return Some(AssignInfo {
+            key: format!("constpath:{}", target),
+            lhs_text: format!("{} = ", target),
+        });
+    }
     // Setter call: obj.method= value or obj[key]= value.
     // RuboCop also treats shovel sends as assignment-like here.
     if let Some(call) = node.as_call_node() {
@@ -478,40 +543,25 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
         // ignores the index arguments, so `flash[:success]=` and
         // `flash[:error]=` would incorrectly share the same assignment key.
         if method == b"[]=" {
-            let recv_src = call.receiver().map_or(String::new(), |r| {
-                String::from_utf8_lossy(r.location().as_slice()).to_string()
-            });
-            if let Some(args) = call.arguments() {
-                let arg_list: Vec<_> = args.arguments().iter().collect();
-                if arg_list.len() >= 2 {
-                    let indices: Vec<_> = arg_list[..arg_list.len() - 1]
-                        .iter()
-                        .map(|a| String::from_utf8_lossy(a.location().as_slice()).to_string())
-                        .collect();
-                    let idx_str = indices.join(", ");
-                    return Some(AssignInfo {
-                        key: format!("send:{}[{}]=", recv_src, idx_str),
-                        lhs_text: format!("{}[{}] = ", recv_src, idx_str),
-                    });
-                }
+            if let Some(target) = index_target_source(call.receiver(), call.arguments(), true) {
+                return Some(AssignInfo {
+                    key: format!("send:{}=", target),
+                    lhs_text: format!("{} = ", target),
+                });
             }
             return None;
         }
         if method_identifier_predicates::is_setter_method(method) {
-            let recv_src = call.receiver().map_or(String::new(), |r| {
-                String::from_utf8_lossy(r.location().as_slice()).to_string()
-            });
             let method_str = String::from_utf8_lossy(method);
             let method_base = &method_str[..method_str.len().saturating_sub(1)];
+            let target = call_target_source(call.receiver(), method_base.as_bytes());
             return Some(AssignInfo {
-                key: format!("send:{}.{}", recv_src, method_str),
-                lhs_text: format!("{}.{} = ", recv_src, method_base),
+                key: format!("send:{}=", target),
+                lhs_text: format!("{} = ", target),
             });
         }
         if method == b"<<" {
-            let recv_src = call.receiver().map_or(String::new(), |r| {
-                String::from_utf8_lossy(r.location().as_slice()).to_string()
-            });
+            let recv_src = receiver_source(call.receiver());
             return Some(AssignInfo {
                 key: format!("send:{}<<", recv_src),
                 lhs_text: format!("{} << ", recv_src),
@@ -533,6 +583,54 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
         return Some(AssignInfo {
             key: format!("op:ivar:{} {}", name, op),
             lhs_text: format!("{} {}= ", name, op),
+        });
+    }
+    if let Some(w) = node.as_class_variable_operator_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:cvar:{} {}", name, op),
+            lhs_text: format!("{} {}= ", name, op),
+        });
+    }
+    if let Some(w) = node.as_global_variable_operator_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:gvar:{} {}", name, op),
+            lhs_text: format!("{} {}= ", name, op),
+        });
+    }
+    if let Some(w) = node.as_constant_operator_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:const:{} {}", name, op),
+            lhs_text: format!("{} {}= ", name, op),
+        });
+    }
+    if let Some(w) = node.as_constant_path_operator_write_node() {
+        let target = String::from_utf8_lossy(w.target().location().as_slice()).to_string();
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:constpath:{} {}", target, op),
+            lhs_text: format!("{} {}= ", target, op),
+        });
+    }
+    if let Some(w) = node.as_call_operator_write_node() {
+        let target = call_target_source(w.receiver(), w.read_name().as_slice());
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:call:{} {}", target, op),
+            lhs_text: format!("{} {}= ", target, op),
+        });
+    }
+    if let Some(w) = node.as_index_operator_write_node() {
+        let target = index_target_source(w.receiver(), w.arguments(), false)?;
+        let op = String::from_utf8_lossy(w.binary_operator().as_slice());
+        return Some(AssignInfo {
+            key: format!("op:index:{} {}", target, op),
+            lhs_text: format!("{} {}= ", target, op),
         });
     }
     // And/Or assignments: x &&= 1, x ||= 1
@@ -562,6 +660,90 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
         return Some(AssignInfo {
             key: format!("or:ivar:{}", name),
             lhs_text: format!("{} ||= ", name),
+        });
+    }
+    if let Some(w) = node.as_class_variable_and_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("and:cvar:{}", name),
+            lhs_text: format!("{} &&= ", name),
+        });
+    }
+    if let Some(w) = node.as_class_variable_or_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("or:cvar:{}", name),
+            lhs_text: format!("{} ||= ", name),
+        });
+    }
+    if let Some(w) = node.as_global_variable_and_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("and:gvar:{}", name),
+            lhs_text: format!("{} &&= ", name),
+        });
+    }
+    if let Some(w) = node.as_global_variable_or_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("or:gvar:{}", name),
+            lhs_text: format!("{} ||= ", name),
+        });
+    }
+    if let Some(w) = node.as_constant_and_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("and:const:{}", name),
+            lhs_text: format!("{} &&= ", name),
+        });
+    }
+    if let Some(w) = node.as_constant_or_write_node() {
+        let name = String::from_utf8_lossy(w.name().as_slice());
+        return Some(AssignInfo {
+            key: format!("or:const:{}", name),
+            lhs_text: format!("{} ||= ", name),
+        });
+    }
+    if let Some(w) = node.as_constant_path_and_write_node() {
+        let target = String::from_utf8_lossy(w.target().location().as_slice()).to_string();
+        return Some(AssignInfo {
+            key: format!("and:constpath:{}", target),
+            lhs_text: format!("{} &&= ", target),
+        });
+    }
+    if let Some(w) = node.as_constant_path_or_write_node() {
+        let target = String::from_utf8_lossy(w.target().location().as_slice()).to_string();
+        return Some(AssignInfo {
+            key: format!("or:constpath:{}", target),
+            lhs_text: format!("{} ||= ", target),
+        });
+    }
+    if let Some(w) = node.as_call_and_write_node() {
+        let target = call_target_source(w.receiver(), w.read_name().as_slice());
+        return Some(AssignInfo {
+            key: format!("and:call:{}", target),
+            lhs_text: format!("{} &&= ", target),
+        });
+    }
+    if let Some(w) = node.as_call_or_write_node() {
+        let target = call_target_source(w.receiver(), w.read_name().as_slice());
+        return Some(AssignInfo {
+            key: format!("or:call:{}", target),
+            lhs_text: format!("{} ||= ", target),
+        });
+    }
+    if let Some(w) = node.as_index_and_write_node() {
+        let target = index_target_source(w.receiver(), w.arguments(), false)?;
+        return Some(AssignInfo {
+            key: format!("and:index:{}", target),
+            lhs_text: format!("{} &&= ", target),
+        });
+    }
+    if let Some(w) = node.as_index_or_write_node() {
+        let target = index_target_source(w.receiver(), w.arguments(), false)?;
+        return Some(AssignInfo {
+            key: format!("or:index:{}", target),
+            lhs_text: format!("{} ||= ", target),
         });
     }
     None

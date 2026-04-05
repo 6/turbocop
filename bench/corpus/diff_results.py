@@ -502,7 +502,48 @@ def main():
     oracle_total = total_matches + total_fp + total_fn
     overall_rate = total_matches / oracle_total if oracle_total > 0 else 1.0
 
+    # Load style-variant results if available (before JSON write so stats are embedded)
+    variant_by_cop: dict[str, list[dict]] = {}  # cop -> [{style_label, matches, fp, fn}]
+    if args.style_variant_results and args.style_variant_results.exists():
+        try:
+            variant_data = json.loads(args.style_variant_results.read_text())
+            for batch in variant_data.get("batches", []):
+                for cop_entry in batch.get("by_cop", []):
+                    cop_name = cop_entry.get("cop", "")
+                    if cop_name:
+                        variant_by_cop.setdefault(cop_name, []).append({
+                            "style_label": cop_entry.get("style_label", batch.get("name", "?")),
+                            "matches": cop_entry.get("matches", 0),
+                            "fp": cop_entry.get("fp", 0),
+                            "fn": cop_entry.get("fn", 0),
+                        })
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Warning: could not load style-variant results: {e}", file=sys.stderr)
+
+    # Compute variant-inclusive totals for summary/department sections
+    variant_total_matches = total_matches
+    variant_total_fp = total_fp
+    variant_total_fn = total_fn
+    variant_dept_stats: dict[str, dict[str, int]] = {}
+    for cop_name, variants in variant_by_cop.items():
+        dept = cop_name.split("/")[0]
+        if dept not in variant_dept_stats:
+            variant_dept_stats[dept] = {"matches": 0, "fp": 0, "fn": 0}
+        for v in variants:
+            variant_total_matches += v["matches"]
+            variant_total_fp += v["fp"]
+            variant_total_fn += v["fn"]
+            variant_dept_stats[dept]["matches"] += v["matches"]
+            variant_dept_stats[dept]["fp"] += v["fp"]
+            variant_dept_stats[dept]["fn"] += v["fn"]
+    variant_oracle_total = variant_total_matches + variant_total_fp + variant_total_fn
+    variant_overall_rate = variant_total_matches / variant_oracle_total if variant_oracle_total > 0 else 1.0
+
     # ── Write JSON ──
+    # NOTE: variant stats (variant_overall_match_rate, variant_match_rate per
+    # department) are NOT embedded here. They are patched in by
+    # patch_variant_stats.py AFTER the include-gated merge, so that variant
+    # rates are computed from the final default FP/FN numbers.
     json_output = {
         "schema": 1,
         "run_date": datetime.now(timezone.utc).isoformat(),
@@ -547,43 +588,6 @@ def main():
         },
     }
     args.output_json.write_text(json.dumps(json_output, indent=2) + "\n")
-
-    # Load style-variant results if available
-    variant_by_cop: dict[str, list[dict]] = {}  # cop -> [{style_label, matches, fp, fn}]
-    if args.style_variant_results and args.style_variant_results.exists():
-        try:
-            variant_data = json.loads(args.style_variant_results.read_text())
-            for batch in variant_data.get("batches", []):
-                for cop_entry in batch.get("by_cop", []):
-                    cop_name = cop_entry.get("cop", "")
-                    if cop_name:
-                        variant_by_cop.setdefault(cop_name, []).append({
-                            "style_label": cop_entry.get("style_label", batch.get("name", "?")),
-                            "matches": cop_entry.get("matches", 0),
-                            "fp": cop_entry.get("fp", 0),
-                            "fn": cop_entry.get("fn", 0),
-                        })
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"Warning: could not load style-variant results: {e}", file=sys.stderr)
-
-    # Compute variant-inclusive totals for summary/department sections
-    variant_total_matches = total_matches
-    variant_total_fp = total_fp
-    variant_total_fn = total_fn
-    variant_dept_stats: dict[str, dict[str, int]] = {}
-    for cop_name, variants in variant_by_cop.items():
-        dept = cop_name.split("/")[0]
-        if dept not in variant_dept_stats:
-            variant_dept_stats[dept] = {"matches": 0, "fp": 0, "fn": 0}
-        for v in variants:
-            variant_total_matches += v["matches"]
-            variant_total_fp += v["fp"]
-            variant_total_fn += v["fn"]
-            variant_dept_stats[dept]["matches"] += v["matches"]
-            variant_dept_stats[dept]["fp"] += v["fp"]
-            variant_dept_stats[dept]["fn"] += v["fn"]
-    variant_oracle_total = variant_total_matches + variant_total_fp + variant_total_fn
-    variant_overall_rate = variant_total_matches / variant_oracle_total if variant_oracle_total > 0 else 1.0
 
     def _sanitize_for_md(s: str) -> str:
         """Replace C0 control chars with ASCII escape sequences.

@@ -135,6 +135,12 @@ jobs:
           # plain "CODE BUG" without the dash, so the em-dash distinguishes them.
           CODE_BUGS=$(grep -c "— CODE BUG" "$TASK_FILE" || true)
           CONFIG_ISSUES=$(grep -c "— CONFIG/CONTEXT" "$TASK_FILE" || true)
+          # Variant-only cops have 0 default FP/FN (no diagnostic markers) but
+          # have a "Style Variant Divergence" section. Count these as dispatchable.
+          if [ "$CODE_BUGS" -eq 0 ] && grep -q "Style Variant Divergence" "$TASK_FILE"; then
+            CODE_BUGS=1
+            echo "Variant-only divergence detected — treating as dispatchable"
+          fi
           echo "code_bugs=$CODE_BUGS" >> "$GITHUB_OUTPUT"
           echo "Code bugs: $CODE_BUGS, Config issues: $CONFIG_ISSUES"
 

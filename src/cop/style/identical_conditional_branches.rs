@@ -92,8 +92,39 @@ use ruby_prism::Visit;
 ///     (before the parser sees the assignment) it remains a `CallNode`.
 ///     Fingerprinting distinguishes `LVR:` from `C:` prefixes.
 ///
-/// Remaining FP (1): RuboCop crashes on single-line ternary `chars.shift`
-/// inside `if` assignment — this is a RuboCop bug, not fixable on our side.
+/// ## Investigation findings (round 4) — fallback fingerprint gaps
+///
+/// 14. **FP: command literals with interpolation** — the fallback source
+///     fingerprint stripped `#...` as if it were a comment, so distinct
+///     backtick commands like `` `...dumpsys` `` and
+///     `` `...dumpsys package #{app}` `` compared equal. Added structural
+///     fingerprinting for `XStringNode`/`InterpolatedXStringNode`.
+///
+/// 15. **FP: method definitions in conditional branches** — falling back to
+///     normalized source for a whole `DefNode` collapsed real differences in
+///     method bodies (for example string-leading whitespace or nested regex /
+///     command interpolation). Added structural `DefNode` and `ParametersNode`
+///     fingerprints so branch comparison follows the AST instead of lossy
+///     source normalization.
+///
+/// ## Investigation findings (round 5) — fingerprint gaps and single-line crash
+///
+/// 16. **FP: `MultiWriteNode` fingerprint omitted `rest()` and `rights()`** —
+///     `*a, b, c = expr` vs `*a, b = expr` produced identical fingerprints
+///     because only `lefts()` and `value()` were included. Added splat (`rest`)
+///     and post-splat (`rights`) targets to the fingerprint.
+///
+/// 17. **FP: `AndNode`/`OrNode` fell through to source-based fallback** —
+///     `source_based_fp` uses `strip_comments` which treats `#` inside regex
+///     literals (`/^#/`, `%r{#{...}}`) as comments, stripping the rest of
+///     the line. This made structurally different expressions (e.g.
+///     `href =~ /^#/ && @a` vs `href =~ /^#/ && (@a || @b)`) produce
+///     identical fingerprints. Added structural `AndNode`/`OrNode` handlers
+///     that recurse into `left()`/`right()`, avoiding the fallback entirely.
+///
+/// 18. **FP: single-line `if...end` with semicolons** — RuboCop crashes with
+///     an internal error on patterns like `if c; x; x; else; x; end`. Skipping
+///     if nodes where the `if` keyword and `end` keyword are on the same line.
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
@@ -139,6 +170,12 @@ fn node_fp(source: &SourceFile, bytes: &[u8], node: &ruby_prism::Node<'_>, out: 
     if let Some(s) = node.as_symbol_node() {
         out.extend_from_slice(b"Y:");
         out.extend_from_slice(s.unescaped());
+        return;
+    }
+
+    // Method definition: compare receiver, name, parameters, and body
+    if let Some(def) = node.as_def_node() {
+        def_node_fp(source, bytes, &def, out);
         return;
     }
 
@@ -455,6 +492,25 @@ fn node_fp(source: &SourceFile, bytes: &[u8], node: &ruby_prism::Node<'_>, out: 
         return;
     }
 
+    // Command literal: compare by unescaped content, ignoring delimiters
+    if let Some(xstr) = node.as_x_string_node() {
+        out.extend_from_slice(b"XS:");
+        out.extend_from_slice(xstr.unescaped());
+        return;
+    }
+
+    // Interpolated command literal: compare parts structurally
+    if let Some(ixstr) = node.as_interpolated_x_string_node() {
+        out.extend_from_slice(b"IX:");
+        for (i, part) in ixstr.parts().iter().enumerate() {
+            if i > 0 {
+                out.push(b'+');
+            }
+            node_fp(source, bytes, &part, out);
+        }
+        return;
+    }
+
     // Interpolated string: structural with parts
     if let Some(istr) = node.as_interpolated_string_node() {
         out.extend_from_slice(b"IS:");
@@ -486,6 +542,14 @@ fn node_fp(source: &SourceFile, bytes: &[u8], node: &ruby_prism::Node<'_>, out: 
             }
             node_fp(source, bytes, &target, out);
         }
+        if let Some(rest) = mw.rest() {
+            out.push(b'*');
+            node_fp(source, bytes, &rest, out);
+        }
+        for target in mw.rights().iter() {
+            out.push(b',');
+            node_fp(source, bytes, &target, out);
+        }
         out.push(b'=');
         node_fp(source, bytes, &mw.value(), out);
         out.push(b')');
@@ -499,6 +563,12 @@ fn node_fp(source: &SourceFile, bytes: &[u8], node: &ruby_prism::Node<'_>, out: 
             node_fp(source, bytes, &body, out);
         }
         out.push(b')');
+        return;
+    }
+
+    // Method parameters
+    if let Some(params) = node.as_parameters_node() {
+        parameters_node_fp(source, bytes, &params, out);
         return;
     }
 
@@ -593,6 +663,26 @@ fn node_fp(source: &SourceFile, bytes: &[u8], node: &ruby_prism::Node<'_>, out: 
         return;
     }
 
+    // And node (&&)
+    if let Some(and_node) = node.as_and_node() {
+        out.extend_from_slice(b"AND(");
+        node_fp(source, bytes, &and_node.left(), out);
+        out.push(b',');
+        node_fp(source, bytes, &and_node.right(), out);
+        out.push(b')');
+        return;
+    }
+
+    // Or node (||)
+    if let Some(or_node) = node.as_or_node() {
+        out.extend_from_slice(b"OR(");
+        node_fp(source, bytes, &or_node.left(), out);
+        out.push(b',');
+        node_fp(source, bytes, &or_node.right(), out);
+        out.push(b')');
+        return;
+    }
+
     // Fallback: source-based fingerprint with comment stripping
     source_based_fp(bytes, node, out);
 }
@@ -645,6 +735,74 @@ fn call_node_fp(
         node_fp(source, bytes, &block, out);
         out.push(b'}');
     }
+}
+
+fn def_node_fp(
+    source: &SourceFile,
+    bytes: &[u8],
+    def: &ruby_prism::DefNode<'_>,
+    out: &mut Vec<u8>,
+) {
+    out.extend_from_slice(b"DEF:");
+    if let Some(receiver) = def.receiver() {
+        node_fp(source, bytes, &receiver, out);
+    } else {
+        out.push(b'-');
+    }
+    out.push(b'|');
+    out.extend_from_slice(def.name().as_slice());
+    out.push(b'(');
+    if let Some(params) = def.parameters() {
+        parameters_node_fp(source, bytes, &params, out);
+    }
+    out.push(b')');
+    out.push(b'|');
+    if let Some(body) = def.body() {
+        node_fp(source, bytes, &body, out);
+    }
+}
+
+fn node_list_fp(
+    source: &SourceFile,
+    bytes: &[u8],
+    nodes: &ruby_prism::NodeList<'_>,
+    out: &mut Vec<u8>,
+) {
+    for (i, node) in nodes.iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        node_fp(source, bytes, &node, out);
+    }
+}
+
+fn parameters_node_fp(
+    source: &SourceFile,
+    bytes: &[u8],
+    params: &ruby_prism::ParametersNode<'_>,
+    out: &mut Vec<u8>,
+) {
+    out.extend_from_slice(b"PARAMS(");
+    node_list_fp(source, bytes, &params.requireds(), out);
+    out.push(b'|');
+    node_list_fp(source, bytes, &params.optionals(), out);
+    out.push(b'|');
+    if let Some(rest) = params.rest() {
+        node_fp(source, bytes, &rest, out);
+    }
+    out.push(b'|');
+    node_list_fp(source, bytes, &params.posts(), out);
+    out.push(b'|');
+    node_list_fp(source, bytes, &params.keywords(), out);
+    out.push(b'|');
+    if let Some(keyword_rest) = params.keyword_rest() {
+        node_fp(source, bytes, &keyword_rest, out);
+    }
+    out.push(b'|');
+    if let Some(block) = params.block() {
+        node_fp(source, bytes, &block.as_node(), out);
+    }
+    out.push(b')');
 }
 
 /// Fallback: source-based fingerprint that strips comments and normalizes
@@ -1394,6 +1552,15 @@ impl Cop for IdenticalConditionalBranches {
                 if kw_loc.as_slice() == b"elsif" {
                     return;
                 }
+                // Skip single-line if/else (e.g. `if c; x; else; y; end`) —
+                // RuboCop crashes with an internal error on these patterns.
+                if let Some(end_loc) = if_node.end_keyword_loc() {
+                    let start_line = source.offset_to_line_col(kw_loc.start_offset()).0;
+                    let end_line = source.offset_to_line_col(end_loc.start_offset()).0;
+                    if start_line == end_line {
+                        return;
+                    }
+                }
             } else {
                 // No keyword loc — this is a ternary or modifier if
                 // RuboCop still flags ternaries, but we handle them via the
@@ -1499,6 +1666,9 @@ impl Cop for IdenticalConditionalBranches {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse::parse_source;
+    use crate::parse::source::SourceFile;
+    use crate::testutil::run_cop_full;
     crate::cop_fixture_tests!(
         IdenticalConditionalBranches,
         "cops/style/identical_conditional_branches"
@@ -1563,5 +1733,30 @@ mod tests {
         );
         assert_eq!(diagnostics[1].message, "Move `x` out of the conditional.");
         assert_eq!(diagnostics[2].message, "Move `y` out of the conditional.");
+    }
+
+    #[test]
+    fn identical_def_branches_are_still_reported() {
+        let source = b"if condition\n  def foo\n    1\n  end\nelse\n  def foo\n    1\n  end\nend\n";
+        let diagnostics = run_cop_full(&IdenticalConditionalBranches, source);
+
+        let source_file = SourceFile::from_bytes("test.rb", source.to_vec());
+        let parse_result = parse_source(source);
+        let if_node = parse_result
+            .node()
+            .as_program_node()
+            .unwrap()
+            .statements()
+            .body()
+            .first()
+            .unwrap()
+            .as_if_node()
+            .unwrap();
+
+        let branches = IdenticalConditionalBranches::collect_if_branches(&if_node).unwrap();
+        let first = stmt_info(&source_file, branches[0].stmts.as_ref().unwrap(), 0).unwrap();
+        let second = stmt_info(&source_file, branches[1].stmts.as_ref().unwrap(), 0).unwrap();
+        assert_eq!(first.key, second.key, "{diagnostics:#?}");
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
     }
 }

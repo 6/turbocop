@@ -131,6 +131,21 @@ use crate::parse::source::SourceFile;
 ///   `argument_of_parenthesized_method_call?`. The method-argument exemption now only applies to
 ///   unparenthesized calls that truly need parens to preserve call parsing, not block-attached
 ///   calls that RuboCop still flags.
+/// - **Backtick command literals:** Prism parses `` `cmd` `` and `` `cmd #{x}` `` as
+///   `XStringNode` / `InterpolatedXStringNode`, not string nodes. Missing those literal node kinds
+///   dropped offenses like ``(`curl ...`).split(" ")`` and bare parenthesized command literals in
+///   blocks. They now classify as literals like RuboCop does.
+/// - **Receiver parens on unparenthesized single-arg calls:** `(Array(...)).include? foo` was
+///   incorrectly treated like a "method argument parentheses required" case because the
+///   like-method-argument approximation only checked the parent call shape. It now also verifies
+///   the parens are not the parent call's receiver, preserving true argument cases like
+///   `x.y((z))`.
+///
+/// ### FP root causes fixed:
+/// - **Command literals as the RHS of `=~`:** `/Version/m =~ (`convert -version`)` stays accepted
+///   by RuboCop even though standalone parenthesized xstrings are redundant. After teaching the cop
+///   that Prism xstrings are literals, it now keeps a narrow exemption when the parenthesized
+///   xstring is the argument to a match operator call.
 pub struct RedundantParentheses;
 
 impl Cop for RedundantParentheses {
@@ -198,6 +213,7 @@ struct ParentInfo {
     call_parenthesized: bool,
     call_arg_count: usize,
     is_operator: bool,
+    is_match_operator: bool,
     is_endless_def: bool,
     is_assignment_parent: bool,
     /// For Call parents, the start offset of the receiver node (if any).
@@ -233,6 +249,7 @@ impl RedundantParensVisitor<'_> {
         } else {
             None
         };
+        let is_receiver = self.is_receiver_of_parent_call(node, parent);
 
         // Multiple expressions like (foo; bar) — skip entirely.
         // RuboCop only flags these in begin/def/block contexts, but distinguishing
@@ -248,7 +265,7 @@ impl RedundantParensVisitor<'_> {
         if let Some(p) = parent {
             let is_like_method_arg = match p.kind {
                 ParentKind::Call => {
-                    !p.call_parenthesized && !p.is_operator && p.call_arg_count == 1
+                    !p.call_parenthesized && !p.is_operator && p.call_arg_count == 1 && !is_receiver
                 }
                 ParentKind::Super | ParentKind::Yield => {
                     !p.call_parenthesized && p.call_arg_count == 1
@@ -467,6 +484,14 @@ impl RedundantParensVisitor<'_> {
             return;
         }
 
+        // RuboCop accepts parenthesized command literals on the RHS of `=~`.
+        // Example: `/Version/m =~ (`convert -version`)`
+        if is_xstring(inner)
+            && parent.is_some_and(|p| matches!(p.kind, ParentKind::Call) && p.is_match_operator)
+        {
+            return;
+        }
+
         if let Some(msg) = classify_simple(inner) {
             // Check for negative numeric in exponentiation base: (-2)**2 is plausible
             if msg == "a literal"
@@ -481,8 +506,6 @@ impl RedundantParensVisitor<'_> {
         // RuboCop's `begin_node.chained?` — if the ParenthesesNode is the receiver
         // of a parent Call (including operators and unary calls), skip logical,
         // comparison, and method-call/unary checks.
-        let is_receiver = self.is_receiver_of_parent_call(node, parent);
-
         // Logical expression
         if inner.as_and_node().is_some() || inner.as_or_node().is_some() {
             if let Some(msg) = check_logical(&self.source.content, node, inner, parent, is_receiver)
@@ -845,6 +868,7 @@ impl RedundantParensVisitor<'_> {
             call_parenthesized: false,
             call_arg_count: 0,
             is_operator: false,
+            is_match_operator: false,
             is_endless_def: false,
             is_assignment_parent: false,
             call_receiver_start_offset: None,
@@ -1250,6 +1274,8 @@ fn classify_simple(node: &ruby_prism::Node<'_>) -> Option<&'static str> {
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
     node.as_string_node().is_some()
         || node.as_interpolated_string_node().is_some()
+        || node.as_x_string_node().is_some()
+        || node.as_interpolated_x_string_node().is_some()
         || node.as_symbol_node().is_some()
         || node.as_interpolated_symbol_node().is_some()
         || node.as_integer_node().is_some()
@@ -1264,6 +1290,10 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_false_node().is_some()
         || node.as_regular_expression_node().is_some()
         || node.as_interpolated_regular_expression_node().is_some()
+}
+
+fn is_xstring(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_x_string_node().is_some() || node.as_interpolated_x_string_node().is_some()
 }
 
 fn is_variable(node: &ruby_prism::Node<'_>) -> bool {
@@ -1428,6 +1458,7 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
             top.call_parenthesized = node.opening_loc().is_some_and(|loc| loc.as_slice() == b"(");
             top.call_arg_count = node.arguments().map(|a| a.arguments().len()).unwrap_or(0);
             top.is_operator = is_operator_method(node);
+            top.is_match_operator = node.name().as_slice() == b"=~";
             top.call_receiver_start_offset = node.receiver().map(|r| r.location().start_offset());
         }
         ruby_prism::visit_call_node(self, node);

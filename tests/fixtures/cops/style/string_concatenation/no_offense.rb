@@ -51,3 +51,12 @@ html = '
 x = 'line1
 line2' + y + 'line3
 line4'
+
+# Safe navigation &.+ is csend in Parser, not send — RuboCop ignores it
+"jdbc:ch:#{CONNECTION_PARAMS[:protocol]&.+(':')}//host/db"
+
+# Percent literal with backslash line continuation — both sides are str_type?
+# in Parser, and + is at end of line → Style/LineEndConcatenation handles it
+%(gem "test", "~> 1.0.0", ) +
+  %(git: "https://example.com/\
+test", tag: "v1.0.0")

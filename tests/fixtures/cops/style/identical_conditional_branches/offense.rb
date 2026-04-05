@@ -307,3 +307,14 @@ else
   set_header(RACK_REQUEST_FORM_PAIRS, pairs)
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `set_header RACK_REQUEST_FORM_PAIRS, pairs` out of the conditional.
 end
+
+# if/else identical trailing backtick commands
+if condition
+  something_a
+  app_response = `echo hi`
+  ^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `app_response = `echo hi`` out of the conditional.
+else
+  something_b
+  app_response = `echo hi`
+  ^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `app_response = `echo hi`` out of the conditional.
+end

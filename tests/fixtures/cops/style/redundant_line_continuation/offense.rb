@@ -214,3 +214,27 @@ raise "Must specify port number!" if @connect_type == :client and \
 raise 'Duplicate field names are not allowed!' unless \
                                                       ^ Style/RedundantLineContinuation: Redundant line continuation.
   temp_field_names == temp_field_names.uniq
+
+query(:state_ni => ['canceled', 'invalided'])
+  .select('id') \
+                ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .group('id')
+
+query(:state_ni => ['canceled', 'invalided']) \
+                                              ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .select('name') \
+                  ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .group('name')
+
+expect(details).to \
+  match(%r{foo \
+               ^ Style/RedundantLineContinuation: Redundant line continuation.
+#{bar}})
+
+greek_chr = ['&Psi;', '&Omega;']\
+                                ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .zip(%w[psi omega])
+
+math_chr = ['&exist;', '&forall;', '&rArr;']\
+                                            ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .zip(%w[exist forall rarr])

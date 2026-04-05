@@ -90,6 +90,9 @@ x && (y == z)
 # Match regex against parenthesized expression
 /regexp/ =~ (b || c)
 regexp =~ (b || c)
+# Command literal on RHS of regex match
+unless /Version/m =~ (`convert -version`)
+end
 # rescue expression is plausible in certain contexts
 foo((bar rescue baz))
 # Parens around one-line rescue in array/hash/ternary

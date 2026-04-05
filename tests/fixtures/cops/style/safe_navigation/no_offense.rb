@@ -145,3 +145,33 @@ RbLazyFrame.new_from_parquet(
   ),
   parallel
 )
+
+# Outer ruby2js `async` sends remain unsafe ancestors
+async {
+  def disconnect()
+    @source.unpair(self) if @source
+  end
+}[]
+
+async def run_cli
+  comments_map.forEach do |value, key|
+    node_desc = if key && key.type
+      "s(:#{key.type}, ...)"
+    else
+      key.to_s[0, 50]
+    end
+  end
+end
+
+async def load
+  setTimeout(5_000) { @pending.resolve() if @pending; @pending = nil }
+end
+
+# Lambda inside hash value of dotless call arguments — RuboCop
+# walks all send ancestors and finds the dotless call as unsafe
+before_save :inherit_restricted_status,
+  if: -> { parent && parent.restricted? }
+
+# Ternary inside nil-method call arguments — ancestor walk finds
+# instance_variable_set as a nil-responding method
+instance_variable_set("@bar", baz.nil? ? nil : baz.to_s)

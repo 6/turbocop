@@ -30,7 +30,11 @@ use crate::parse::source::SourceFile;
 ///   dot, so it must be distinguished from ordinary `self.call(...)`.
 /// - `self::foo(...)` is checked the same as `self.foo(...)`, but `pp` is not a
 ///   Kernel-method exemption. RuboCop flags `self.pp(...)` while still allowing
-///   real Kernel methods like `self.open(...)` and `self.printf(...)`.
+///   real Kernel methods like `self.open(...)`, `self.eval(...)`, `self.test(...)`,
+///   and `self.printf(...)`.
+/// - Prism exposes splatted multi-write targets like `*self.arr = value` as a
+///   `CallTargetNode` nested under `SplatNode` instead of a normal `CallNode`, so
+///   they need a dedicated check to keep offense fixtures aligned with RuboCop.
 /// - Scope boundaries (def, class, module) prevent local variables from leaking
 ///   across them. A lambda param `token` at class body level does not suppress
 ///   detection of `self.token` inside a method definition. Blocks within a def
@@ -84,6 +88,7 @@ const ALLOWED_METHODS: &[&[u8]] = &[
 
 /// Kernel methods where self. is required to avoid ambiguity with top-level functions.
 const KERNEL_METHODS: &[&[u8]] = &[
+    b"eval",
     b"open",
     b"puts",
     b"print",
@@ -125,6 +130,7 @@ const KERNEL_METHODS: &[&[u8]] = &[
     b"global_variables",
     b"local_variables",
     b"set_trace_func",
+    b"test",
     b"trace_var",
     b"untrace_var",
     b"trap",
@@ -296,7 +302,7 @@ impl RedundantSelfVisitor<'_> {
     fn is_explicit_call_syntax(
         &self,
         node: &ruby_prism::CallNode<'_>,
-        call_op: ruby_prism::Location<'_>,
+        call_op: &ruby_prism::Location<'_>,
         name_bytes: &[u8],
     ) -> bool {
         name_bytes == b"call"
@@ -304,6 +310,42 @@ impl RedundantSelfVisitor<'_> {
             && node
                 .opening_loc()
                 .is_some_and(|opening| opening.start_offset() == call_op.end_offset())
+    }
+
+    fn self_receiver_is_redundant(
+        &self,
+        call_op: &ruby_prism::Location<'_>,
+        name_bytes: &[u8],
+        explicit_call_syntax: bool,
+    ) -> bool {
+        let is_setter = name_bytes.ends_with(b"=")
+            && name_bytes != b"=="
+            && name_bytes != b"!="
+            && name_bytes != b"<="
+            && name_bytes != b">="
+            && name_bytes != b"===";
+
+        matches!(call_op.as_slice(), b"." | b"::")
+            && !explicit_call_syntax
+            && !is_setter
+            && name_bytes != b"[]"
+            && name_bytes != b"[]="
+            && !method_identifier_predicates::is_operator_method(name_bytes)
+            && !ALLOWED_METHODS.contains(&name_bytes)
+            && !KERNEL_METHODS.contains(&name_bytes)
+            && !is_uppercase_method(name_bytes)
+            && !self.is_local_variable(name_bytes)
+            && !self.is_allowed_self_method(name_bytes)
+    }
+
+    fn add_redundant_self_offense(&mut self, self_loc: ruby_prism::Location<'_>) {
+        let (line, column) = self.source.offset_to_line_col(self_loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Redundant `self` detected.".to_string(),
+        ));
     }
 }
 
@@ -403,34 +445,14 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                     if matches!(call_op.as_slice(), b"." | b"::") {
                         let method_name = node.name();
                         let name_bytes = method_name.as_slice();
-
-                        let is_setter = name_bytes.ends_with(b"=")
-                            && name_bytes != b"=="
-                            && name_bytes != b"!="
-                            && name_bytes != b"<="
-                            && name_bytes != b">="
-                            && name_bytes != b"===";
-
-                        if !self.is_explicit_call_syntax(node, call_op, name_bytes)
-                            && !is_setter
-                            && name_bytes != b"[]"
-                            && name_bytes != b"[]="
-                            && !method_identifier_predicates::is_operator_method(name_bytes)
-                            && !ALLOWED_METHODS.contains(&name_bytes)
-                            && !KERNEL_METHODS.contains(&name_bytes)
-                            && !is_uppercase_method(name_bytes)
-                            && !self.is_local_variable(name_bytes)
-                            && !self.is_allowed_self_method(name_bytes)
-                        {
-                            let self_loc = receiver.location();
-                            let (line, column) =
-                                self.source.offset_to_line_col(self_loc.start_offset());
-                            self.diagnostics.push(self.cop.diagnostic(
-                                self.source,
-                                line,
-                                column,
-                                "Redundant `self` detected.".to_string(),
-                            ));
+                        let explicit_call_syntax =
+                            self.is_explicit_call_syntax(node, &call_op, name_bytes);
+                        if self.self_receiver_is_redundant(
+                            &call_op,
+                            name_bytes,
+                            explicit_call_syntax,
+                        ) {
+                            self.add_redundant_self_offense(receiver.location());
                         }
                     }
                 }
@@ -627,6 +649,25 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                 self.add_allowed_self_method(node.read_name().as_slice());
             }
         }
+    }
+
+    fn visit_splat_node(&mut self, node: &ruby_prism::SplatNode<'pr>) {
+        if let Some(expression) = node.expression() {
+            if let Some(call_target) = expression.as_call_target_node() {
+                let receiver = call_target.receiver();
+                if receiver.as_self_node().is_some()
+                    && self.self_receiver_is_redundant(
+                        &call_target.call_operator_loc(),
+                        call_target.message_loc().as_slice(),
+                        false,
+                    )
+                {
+                    self.add_redundant_self_offense(receiver.location());
+                }
+            }
+        }
+
+        ruby_prism::visit_splat_node(self, node);
     }
 }
 

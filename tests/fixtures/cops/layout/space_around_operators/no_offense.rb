@@ -202,3 +202,7 @@ projects  = 3.times.map { |i| i }
 @end_token   = "]"
 @assignment  = "="
 @statement_terminator  = ";"
+
+# Plain = followed by non-assignment line with = only inside a string
+rel  = '/test'
+expect(foo).to eq("test?name2=val2")

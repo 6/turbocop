@@ -10,8 +10,11 @@ result = JSON.parse(response.body)
 ::JSON.parse(response.body)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Prefer `response.parsed_body` to `JSON.parse(response.body)`.
 
-Nokogiri::HTML.parse(response.body)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Prefer `response.parsed_body` to `Nokogiri::HTML.parse(response.body)`.
+expect(JSON.parse(response.body)).to eq({})
+       ^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Prefer `response.parsed_body` to `JSON.parse(response.body)`.
 
-Nokogiri::HTML5.parse(response.body)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Prefer `response.parsed_body` to `Nokogiri::HTML5.parse(response.body)`.
+parsed_body = JSON.parse(response.body)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Prefer `response.parsed_body` to `JSON.parse(response.body)`.
+
+json = JSON.parse(response.body)
+       ^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Prefer `response.parsed_body` to `JSON.parse(response.body)`.

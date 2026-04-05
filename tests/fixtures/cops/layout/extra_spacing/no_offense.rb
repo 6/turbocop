@@ -188,3 +188,17 @@ let(:hiera_config) { <<~CONF  }
 ---
 version: 5
 CONF
+
+# Trailing content after heredoc opener is not checked (RuboCop's token
+# stream jumps to the heredoc body, so the trailing text is never paired)
+STATS = <<-STATS  # :nodoc:
+body
+STATS
+
+fail <<~EOM  if condition
+  body
+EOM
+
+code = <<~__CODE     # insert the code update
+  body
+__CODE

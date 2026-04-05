@@ -45,6 +45,19 @@ use crate::parse::source::SourceFile;
 ///    RuboCop is narrower: explicit keyword params in the def, or extra/interleaved keyword
 ///    arguments in the call (for example `foo(*, extra:, **, &)`) must not be collapsed to
 ///    `...`.
+///
+/// FP=10 investigation (2026-04-04): RuboCop accepts anonymous `(*, **, &)` when that forwarding
+/// call is only the receiver of a larger chained send, for example `new(*, **, &).produce` or
+/// `call(*, **, &).raise_if_error!`. nitrocop was classifying the inner receiver send as a
+/// standalone forwarding call and incorrectly reporting `...`. Fix: track receiver traversal in
+/// the anonymous classifier and skip `...` classification for receiver-only subexpressions.
+///
+/// FP=4 investigation (2026-04-05): `NonForwardingRefFinder` skipped nested `def` nodes, but
+/// RuboCop's `non_splat_or_block_pass_lvar_references` uses `each_descendant(:lvar, :lvasgn)`
+/// which crosses def boundaries. When a nested def has parameters with the same name as the
+/// outer method (e.g., `def inner(*args); args.first; end`), the inner lvar reference marks
+/// that name as "referenced" and suppresses forwarding. Fix: removed the `visit_def_node`
+/// early return from `NonForwardingRefFinder` so it walks into nested defs, matching RuboCop.
 pub struct ArgumentsForwarding;
 
 const FORWARDING_MSG: &str = "Use shorthand syntax `...` for arguments forwarding.";
@@ -432,6 +445,7 @@ fn classify_anonymous_sends(
         results: Vec::new(),
         block_depth: 0,
         ruby_version,
+        receiver_depth: 0,
     };
     classifier.visit(body);
     classifier.results
@@ -441,6 +455,7 @@ struct AnonSendClassifier {
     results: Vec<AnonSendClassification>,
     block_depth: usize,
     ruby_version: f64,
+    receiver_depth: usize,
 }
 
 impl AnonSendClassifier {
@@ -497,24 +512,44 @@ impl AnonSendClassifier {
 
 impl<'pr> Visit<'pr> for AnonSendClassifier {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if let Some(sc) = self.classify_anon_call(node.arguments(), node.block()) {
-            self.results.push(sc);
+        if self.receiver_depth == 0 {
+            if let Some(sc) = self.classify_anon_call(node.arguments(), node.block()) {
+                self.results.push(sc);
+            }
         }
-        ruby_prism::visit_call_node(self, node);
+
+        if let Some(receiver) = node.receiver() {
+            self.receiver_depth += 1;
+            self.visit(&receiver);
+            self.receiver_depth -= 1;
+        }
+        if let Some(arguments) = node.arguments() {
+            self.visit_arguments_node(&arguments);
+        }
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
     }
 
     fn visit_super_node(&mut self, node: &ruby_prism::SuperNode<'pr>) {
         if let Some(sc) = self.classify_anon_call(node.arguments(), node.block()) {
             self.results.push(sc);
         }
-        ruby_prism::visit_super_node(self, node);
+        if let Some(arguments) = node.arguments() {
+            self.visit_arguments_node(&arguments);
+        }
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
     }
 
     fn visit_yield_node(&mut self, node: &ruby_prism::YieldNode<'pr>) {
         if let Some(sc) = self.classify_anon_call(node.arguments(), None) {
             self.results.push(sc);
         }
-        ruby_prism::visit_yield_node(self, node);
+        if let Some(arguments) = node.arguments() {
+            self.visit_arguments_node(&arguments);
+        }
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
@@ -1092,8 +1127,11 @@ impl<'pr> Visit<'pr> for NonForwardingRefFinder {
         ruby_prism::visit_block_argument_node(self, node);
     }
 
-    // Don't recurse into nested defs
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+    // Walk into nested defs to collect lvar references from inner scopes.
+    // RuboCop's `non_splat_or_block_pass_lvar_references` uses `each_descendant(:lvar, :lvasgn)`
+    // which crosses def boundaries. When a nested def has parameters with the same name as the
+    // outer method (e.g., `def inner(*args); args.first; end`), the inner lvar reference marks
+    // the name as "referenced" and suppresses forwarding suggestions for the outer method.
 }
 
 #[cfg(test)]

@@ -67,6 +67,13 @@ use ruby_prism::Visit;
 ///     multiline (block `{ }` on one line), even though the expression
 ///     spans two lines. Previously we used `is_multiline` on the full
 ///     condition source range, incorrectly skipping these.
+/// 12. Matched RuboCop's `trivial?` handling for overlong branch-style guard
+///     clause rewrites when the guarded branch is the only executable branch.
+///     Comment-only `else` still participates in short `if ... else` guard
+///     clause offenses, but if the suggested single-line rewrite would exceed
+///     `MaxLineLength`, RuboCop suppresses it when the opposite branch has no
+///     statements. Previously nitrocop always emitted the multi-line rewrite,
+///     causing long false positives inside `case`/`when` and similar contexts.
 pub struct GuardClause;
 
 const GUARD_METHODS: &[&[u8]] = &[b"raise", b"fail"];
@@ -269,6 +276,7 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
                     &predicate,
                     guard_stmt,
                     "if",
+                    true,
                     else_node.statements(),
                 );
                 return;
@@ -284,6 +292,7 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
                         &predicate,
                         guard_stmt,
                         "unless",
+                        false,
                         node.statements(),
                     );
                 }
@@ -406,6 +415,7 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
                     &predicate,
                     guard_stmt,
                     "unless",
+                    true,
                     else_node.statements(),
                 );
                 return;
@@ -421,6 +431,7 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
                         &predicate,
                         guard_stmt,
                         "if",
+                        false,
                         node.statements(),
                     );
                 }
@@ -432,9 +443,11 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
     /// Prism emits an ElseNode even for comment-only else branches, but RuboCop's
     /// Parser gem treats those as no-else. We must match that behavior.
     fn else_has_statements(else_node: &ruby_prism::ElseNode<'_>) -> bool {
-        else_node
-            .statements()
-            .is_some_and(|s| s.body().iter().next().is_some())
+        Self::statements_have_code(else_node.statements())
+    }
+
+    fn statements_have_code(statements: Option<ruby_prism::StatementsNode<'_>>) -> bool {
+        statements.is_some_and(|s| s.body().iter().next().is_some())
     }
 
     /// Check if a node spans multiple lines.
@@ -496,7 +509,8 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
         condition: &ruby_prism::Node<'_>,
         guard_stmt: &ruby_prism::Node<'_>,
         conditional_keyword: &str,
-        _remaining_branch: Option<ruby_prism::StatementsNode<'_>>,
+        guard_from_primary_branch: bool,
+        remaining_branch: Option<ruby_prism::StatementsNode<'_>>,
     ) {
         let guard_src = self.node_source(guard_stmt);
         let condition_src = self.node_source(condition);
@@ -504,6 +518,9 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
         let (line, column) = self.source.offset_to_line_col(keyword_offset);
 
         let example = if self.too_long_for_single_line(column, &inline_example) {
+            if guard_from_primary_branch && !Self::statements_have_code(remaining_branch) {
+                return;
+            }
             format!(
                 "{} {}; {}; end",
                 conditional_keyword, condition_src, guard_src

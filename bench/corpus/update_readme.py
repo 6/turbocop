@@ -189,6 +189,8 @@ def build_department_stats(data: dict, synthetic: dict[str, dict] | None = None)
             "matches": entry.get("matches", derived_entry.get("matches", 0)),
             "fp": entry.get("fp", derived_entry.get("fp", 0)),
             "fn": entry.get("fn", derived_entry.get("fn", 0)),
+            "variant_perfect_cops": entry.get("variant_perfect_cops"),
+            "variant_diverging_cops": entry.get("variant_diverging_cops"),
         }
 
     for dept, entry in derived.items():
@@ -211,6 +213,7 @@ def build_department_stats(data: dict, synthetic: dict[str, dict] | None = None)
     return stats_by_department
 
 
+
 def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> str:
     """Build the generated README Cops section."""
     summary = data.get("summary", {})
@@ -219,12 +222,7 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
 
     total_cops = summary.get("registered_cops", sum(d["cops"] for d in by_department.values()))
     perfect_cops = sum(d["perfect_cops"] for d in by_department.values())
-    diverging_cops = sum(d["diverging_cops"] for d in by_department.values())
     no_data_cops = sum(d["no_data_cops"] for d in by_department.values())
-    total_matches = summary.get("matches", 0)
-    total_fp = summary.get("fp", 0)
-    total_fn = summary.get("fn", 0)
-    total_compared = total_matches + total_fp + total_fn
     total_repos = summary.get("total_repos", 0)
     total_files = summary.get("total_files_inspected", 0)
     files_str = format_files(total_files) if total_files > 0 else None
@@ -240,68 +238,82 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         corpus_line += "."
         lines.append(corpus_line)
         lines.append("")
-    if total_compared > 0:
-        summary_line = (
-            f"{format_offense_match_pct(total_matches, total_fp, total_fn)} of compared issue reports matched "
-            f"({format_count_summary(total_matches)} of {format_count_summary(total_compared)}). "
-            f"{perfect_cops:,} of {total_cops:,} cops matched exactly"
+    # Summary: cop-level exact match counts
+    variant_perfect_total = sum(d.get("variant_perfect_cops") or 0 for d in by_department.values())
+    has_variant = any(d.get("variant_perfect_cops") is not None for d in by_department.values())
+
+    lines.append(f"{perfect_cops:,} of {total_cops:,} cops produce identical results to RuboCop (default config).")
+    if has_variant and variant_perfect_total < perfect_cops:
+        lines.append(
+            f"When tested with all style variants (e.g. `EnforcedStyle: comma`), "
+            f"{variant_perfect_total:,} of {total_cops:,} match exactly."
         )
-    else:
-        summary_line = f"{perfect_cops:,} of {total_cops:,} cops matched exactly"
-    if diverging_cops > 0:
-        summary_line += f"; {diverging_cops:,} differed"
     if no_data_cops > 0:
-        summary_line += f"; {no_data_cops:,} had no corpus data"
-    summary_line += "."
-    lines.append(summary_line)
+        lines.append(f"{no_data_cops:,} cops had no corpus data.")
     lines.append("")
+
+    # Explanation before tables
+    if has_variant:
+        lines.append(
+            "**Default** = tested with default RuboCop config. "
+            "**All variants** = tested with every supported `EnforcedStyle` value."
+        )
+        lines.append("")
 
     for gem in GEMS:
         rows = [by_department[dept] for dept in gem["departments"]]
         total = sum(r["cops"] for r in rows)
         perfect = sum(r["perfect_cops"] for r in rows)
-        diverging = sum(r["diverging_cops"] for r in rows)
         no_data = sum(r["no_data_cops"] for r in rows)
+        gem_has_variant = any(r.get("variant_perfect_cops") is not None for r in rows)
         version = baseline.get(gem["key"], "?")
         lines.append(f"**[{gem['key']}]({gem['url']})** `{version}` ({total:,} cops)")
         lines.append("")
+
+        # Simple table: Department, Cops, Exact match (default), All variants
+        hdr = "| Department | Cops | Exact match (default) |"
+        sep = "|------------|-----:|----------------------:|"
+        if gem_has_variant:
+            hdr += " Exact match (all variants) |"
+            sep += "---------------------------:|"
         if no_data > 0:
-            lines.append("| Department | Cops | Matched exactly | Differed | No corpus data | Matched exactly % |")
-            lines.append("|------------|-----:|----------------:|---------:|---------------:|------------------:|")
-            for row in rows:
-                lines.append(
-                    f"| {row['department']} | {row['cops']:,} | "
-                    f"{row['perfect_cops']:,} | {row['diverging_cops']:,} | {row['no_data_cops']:,} | "
-                    f"{format_exact_match_pct(row['perfect_cops'], row['cops'])} |"
-                )
-            if len(rows) > 1:
-                lines.append(
-                    f"| **Total** | **{total:,}** | **{perfect:,}** | "
-                    f"**{diverging:,}** | **{no_data:,}** | "
-                    f"**{format_exact_match_pct(perfect, total)}** |"
-                )
-        else:
-            lines.append("| Department | Cops | Matched exactly | Differed | Matched exactly % |")
-            lines.append("|------------|-----:|----------------:|---------:|------------------:|")
-            for row in rows:
-                lines.append(
-                    f"| {row['department']} | {row['cops']:,} | "
-                    f"{row['perfect_cops']:,} | {row['diverging_cops']:,} | "
-                    f"{format_exact_match_pct(row['perfect_cops'], row['cops'])} |"
-                )
-            if len(rows) > 1:
-                lines.append(
-                    f"| **Total** | **{total:,}** | **{perfect:,}** | "
-                    f"**{diverging:,}** | "
-                    f"**{format_exact_match_pct(perfect, total)}** |"
-                )
+            hdr += " No data |"
+            sep += "--------:|"
+        lines.append(hdr)
+        lines.append(sep)
+
+        def _fmt_match(count: int, total: int) -> str:
+            if total <= 0:
+                return "—"
+            if count == total:
+                return f"**{count:,} ✓**"
+            return str(f"{count:,}")
+
+        for row in rows:
+            cops = row["cops"]
+            cells = f"| {row['department']} | {cops:,} | {_fmt_match(row['perfect_cops'], cops)} |"
+            if gem_has_variant:
+                vpc = row.get("variant_perfect_cops")
+                if vpc is not None:
+                    cells += f" {_fmt_match(vpc, cops)} |"
+                else:
+                    cells += " — |"
+            if no_data > 0:
+                cells += f" {row['no_data_cops']:,} |" if row["no_data_cops"] > 0 else " |"
+            lines.append(cells)
+
+        if len(rows) > 1:
+            pct = format_match_rate(perfect / total) if total > 0 else "N/A"
+            cells = f"| **Total** | **{total:,}** | **{perfect:,} ({pct})** |"
+            if gem_has_variant:
+                gem_vpc = sum(r.get("variant_perfect_cops", 0) for r in rows)
+                vpct = format_match_rate(gem_vpc / total) if total > 0 else "N/A"
+                cells += f" **{gem_vpc:,} ({vpct})** |"
+            if no_data > 0:
+                cells += f" **{no_data:,}** |"
+            lines.append(cells)
         lines.append("")
 
-    lines.append(
-        "\"Matched exactly\" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus."
-    )
-    if no_data_cops > 0:
-        lines.append("No corpus data means the cop never appeared in the corpus, so it has not been compared yet.")
     lines.append("See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.")
 
     return "\n".join(lines).rstrip()

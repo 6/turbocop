@@ -121,3 +121,12 @@ self::process_api_call "projects", "advanced", search_terms, page, category_id, 
 
 self::process_api_call "projects", "ending-soon", "", page
 ^ Style/RedundantSelf: Redundant `self` detected.
+
+rescue => self.foo
+          ^^^^ Style/RedundantSelf: Redundant `self` detected.
+
+rescue => self.captured_error
+          ^^^^ Style/RedundantSelf: Redundant `self` detected.
+
+*self.arr = val
+ ^^^^ Style/RedundantSelf: Redundant `self` detected.
