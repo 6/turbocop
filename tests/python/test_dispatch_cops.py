@@ -950,6 +950,51 @@ def test_load_variant_data_for_cop_no_data():
     assert result == []
 
 
+def test_load_variant_only_candidates_finds_variant_diverging():
+    """Finds cops that are default-perfect but variant-diverging."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    data = {
+        "by_cop": [
+            {"cop": "Naming/Foo", "fp": 0, "fn": 0, "matches": 100},
+            {"cop": "Naming/Bar", "fp": 5, "fn": 0, "matches": 50},
+        ],
+    }
+
+    original_download = gct._download_corpus
+    try:
+        cache_dir = Path(tempfile.gettempdir()) / "nitrocop-corpus-cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        fake_run_id = 88888
+        variant_cache = cache_dir / f"style-variant-results-{fake_run_id}.json"
+        variant_cache.write_text(json.dumps({
+            "batches": [{
+                "name": "batch_1",
+                "by_cop": [
+                    {"cop": "Naming/Foo", "style_label": "x", "fp": 10, "fn": 5},
+                    {"cop": "Naming/Bar", "style_label": "y", "fp": 3, "fn": 0},
+                ],
+            }],
+        }))
+        corpus_path = cache_dir / "fake-corpus.json"
+        corpus_path.write_text("{}")
+        gct._download_corpus = lambda: (corpus_path, fake_run_id, "abc")
+
+        result = gct.load_variant_only_candidates(data, "Naming", set())
+        # Naming/Foo: default perfect + variant diverging → included
+        # Naming/Bar: default diverging → excluded (already in default rank)
+        assert len(result) == 1
+        assert result[0]["cop"] == "Naming/Foo"
+        assert result[0]["variant_fp"] == 10
+        assert result[0]["variant_fn"] == 5
+        assert result[0]["fp"] == 0
+    finally:
+        gct._download_corpus = original_download
+        variant_cache.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     test_pascal_to_snake()
     test_parse_cop_name()
@@ -986,4 +1031,5 @@ if __name__ == "__main__":
     test_render_issue_body_variant_only_divergence()
     test_render_issue_body_no_variants()
     test_load_variant_data_for_cop_no_data()
+    test_load_variant_only_candidates_finds_variant_diverging()
     print("All tests passed.")
