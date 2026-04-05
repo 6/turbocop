@@ -17,6 +17,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::fs::DiscoveredFiles;
 use crate::parse::codemap::CodeMap;
+use crate::parse::directives::DisableDirective;
 use crate::parse::source::SourceFile;
 
 /// Thread-safe phase timing counters (nanoseconds) for profiling.
@@ -602,6 +603,16 @@ fn redundant_disable_target_ruby_version(config: &CopConfig) -> f64 {
         .unwrap_or(2.7)
 }
 
+struct RedundantDirectiveCheck<'a> {
+    registry: &'a CopRegistry,
+    base_configs: &'a [CopConfig],
+    cop_filters: &'a CopFilterSet,
+    path: &'a Path,
+    has_only_filter: bool,
+    redundant_disable_explicitly_selected: bool,
+    all_cops_ran: bool,
+}
+
 /// Determine if a disable directive should be flagged as redundant.
 ///
 /// Returns `Some(suffix)` if the directive IS redundant (should be reported),
@@ -618,15 +629,11 @@ fn redundant_disable_target_ruby_version(config: &CopConfig) -> f64 {
 ///   - Completely unknown cop: flag with "(unknown cop)" suffix, except during
 ///     unrelated `--only` runs where it would leak into another cop's results
 fn is_directive_redundant(
-    cop_name: &str,
-    registry: &CopRegistry,
-    base_configs: &[CopConfig],
-    cop_filters: &CopFilterSet,
-    path: &Path,
-    has_only_filter: bool,
-    redundant_disable_explicitly_selected: bool,
-    all_cops_ran: bool,
+    directive: &DisableDirective,
+    context: &RedundantDirectiveCheck<'_>,
 ) -> Option<&'static str> {
+    let cop_name = directive.cop_name.as_str();
+
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
         return None;
@@ -644,7 +651,8 @@ fn is_directive_redundant(
     }
 
     // Fully qualified cop name — check if it's in the registry
-    let cop_entry = registry
+    let cop_entry = context
+        .registry
         .cops()
         .iter()
         .enumerate()
@@ -652,7 +660,7 @@ fn is_directive_redundant(
 
     if let Some((idx, _)) = cop_entry {
         // Cop IS in the registry.
-        let filter = cop_filters.cop_filter(idx);
+        let filter = context.cop_filters.cop_filter(idx);
         if !filter.is_enabled() {
             // Cop is explicitly disabled — the disable directive is redundant.
             return Some("");
@@ -662,12 +670,13 @@ fn is_directive_redundant(
         // from app/controllers/**). Only check Exclude, NOT Include — Include
         // mismatches can arise from sub-config directory path issues and are
         // not reliable indicators of redundancy.
-        if cop_filters.is_cop_excluded(idx, path) {
+        if context.cop_filters.is_cop_excluded(idx, context.path) {
             return Some("");
         }
         // Cop is enabled and not explicitly excluded.
-        if all_cops_ran && cop_filters.is_cop_match(idx, path) {
-            let target_ruby_version = redundant_disable_target_ruby_version(&base_configs[idx]);
+        if context.all_cops_ran && context.cop_filters.is_cop_match(idx, context.path) {
+            let target_ruby_version =
+                redundant_disable_target_ruby_version(&context.base_configs[idx]);
             // All cops ran AND this specific cop matched the file (Include
             // patterns matched), so we have reliable usage data — if the
             // directive is still unused, the cop genuinely didn't fire and
@@ -677,7 +686,11 @@ fn is_directive_redundant(
             // nitrocop may miss an offense that the directive legitimately
             // suppresses.
             if !REDUNDANT_DISABLE_SKIP_COPS.contains(&cop_name)
-                || allow_redundant_disable_flagging_for_known_gap_cop(cop_name, target_ruby_version)
+                || allow_redundant_disable_flagging_for_known_gap_cop(
+                    cop_name,
+                    target_ruby_version,
+                    directive.is_inline,
+                )
             {
                 return Some("");
             }
@@ -693,7 +706,8 @@ fn is_directive_redundant(
         if let Some(new_name) = RENAMED_COPS.get(cop_name) {
             // The cop was renamed. Look up the new-name cop's state to mirror
             // the logic applied to registered cops above.
-            let new_entry = registry
+            let new_entry = context
+                .registry
                 .cops()
                 .iter()
                 .enumerate()
@@ -702,10 +716,10 @@ fn is_directive_redundant(
                 // In --only mode the new-name cop may not have run, so check
                 // its config: if it's enabled, the old-name directive might be
                 // suppressing its offenses — skip.
-                if has_only_filter
-                    && !all_cops_ran
-                    && cop_filters.cop_filter(new_idx).is_enabled()
-                    && !cop_filters.is_cop_excluded(new_idx, path)
+                if context.has_only_filter
+                    && !context.all_cops_ran
+                    && context.cop_filters.cop_filter(new_idx).is_enabled()
+                    && !context.cop_filters.is_cop_excluded(new_idx, context.path)
                 {
                     return None;
                 }
@@ -713,12 +727,13 @@ fn is_directive_redundant(
                 // has known detection gaps (in REDUNDANT_DISABLE_SKIP_COPS),
                 // the old-name directive might legitimately suppress an offense
                 // that nitrocop missed — don't flag it.
-                if all_cops_ran
-                    && cop_filters.is_cop_match(new_idx, path)
+                if context.all_cops_ran
+                    && context.cop_filters.is_cop_match(new_idx, context.path)
                     && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str())
                     && !allow_redundant_disable_flagging_for_known_gap_cop(
                         new_name,
-                        redundant_disable_target_ruby_version(&base_configs[new_idx]),
+                        redundant_disable_target_ruby_version(&context.base_configs[new_idx]),
+                        directive.is_inline,
                     )
                 {
                     return None;
@@ -726,7 +741,8 @@ fn is_directive_redundant(
                 // Even without all_cops_ran (e.g. --except mode), don't flag
                 // if the new-name cop has known detection gaps — the directive
                 // may legitimately suppress an offense nitrocop misses.
-                if !all_cops_ran && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str()) {
+                if !context.all_cops_ran && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str())
+                {
                     return None;
                 }
             }
@@ -737,7 +753,7 @@ fn is_directive_redundant(
         // flags these with "(unknown cop)" since they can never suppress an
         // offense. However, during --only runs for an unrelated cop, suppress
         // these to avoid leaking diagnostics into that cop's corpus results.
-        if has_only_filter && !redundant_disable_explicitly_selected {
+        if context.has_only_filter && !context.redundant_disable_explicitly_selected {
             return None;
         }
         Some(" (unknown cop)")
@@ -1332,6 +1348,15 @@ fn lint_source_once(
         if cop_enabled {
             let redundant_disable_explicitly_selected =
                 args.only.iter().any(|o| o == REDUNDANT_DISABLE_COP);
+            let redundant_check = RedundantDirectiveCheck {
+                registry,
+                base_configs: active_base_configs,
+                cop_filters: active_filters,
+                path: &source.path,
+                has_only_filter: !args.only.is_empty(),
+                redundant_disable_explicitly_selected,
+                all_cops_ran,
+            };
             for directive in disabled.unused_directives() {
                 // If this line is within an explicit `# rubocop:disable
                 // Lint/RedundantCopDisableDirective` region, suppress the
@@ -1343,16 +1368,7 @@ fn lint_source_once(
                     continue;
                 }
 
-                let suffix = match is_directive_redundant(
-                    &directive.cop_name,
-                    registry,
-                    active_base_configs,
-                    active_filters,
-                    &source.path,
-                    !args.only.is_empty(),
-                    redundant_disable_explicitly_selected,
-                    all_cops_ran,
-                ) {
+                let suffix = match is_directive_redundant(directive, &redundant_check) {
                     Some(s) => s,
                     None => continue,
                 };

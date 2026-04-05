@@ -99,17 +99,19 @@ use crate::diagnostic::Severity;
 /// 100.0% match, so keeping it on the conservative redundant-disable denylist
 /// masked clearly-unused directives for abstract `raise NotImplementedError`
 /// stubs. `Security/YAMLLoad` remains special: RuboCop only runs it for
-/// TargetRubyVersion <= 3.0, so Ruby 3.1+ can safely flag the directive as
-/// redundant even though nitrocop keeps the cop as a compatibility stub.
+/// TargetRubyVersion <= 3.0, so Ruby 3.1+ can safely flag inline directives
+/// as redundant even though nitrocop keeps the cop as a compatibility stub.
+/// Standalone block disables remain conservative to match RuboCop.
 pub struct RedundantCopDisableDirective;
 
 pub(crate) fn allow_redundant_disable_flagging_for_known_gap_cop(
     cop_name: &str,
     target_ruby_version: f64,
+    is_inline: bool,
 ) -> bool {
     match cop_name {
         "Lint/UnusedMethodArgument" => true,
-        "Security/YAMLLoad" => target_ruby_version >= 3.1,
+        "Security/YAMLLoad" => is_inline && target_ruby_version >= 3.1,
         _ => false,
     }
 }
@@ -152,7 +154,8 @@ mod tests {
     fn unused_method_argument_is_no_longer_forced_to_skip() {
         assert!(allow_redundant_disable_flagging_for_known_gap_cop(
             "Lint/UnusedMethodArgument",
-            2.7
+            2.7,
+            true,
         ));
     }
 
@@ -160,19 +163,27 @@ mod tests {
     fn line_length_stays_skiplisted() {
         assert!(!allow_redundant_disable_flagging_for_known_gap_cop(
             "Layout/LineLength",
-            2.7
+            2.7,
+            true,
         ));
     }
 
     #[test]
-    fn yaml_load_only_allows_flagging_on_ruby_3_1_and_newer() {
+    fn yaml_load_only_allows_inline_flagging_on_ruby_3_1_and_newer() {
         assert!(!allow_redundant_disable_flagging_for_known_gap_cop(
             "Security/YAMLLoad",
-            3.0
+            3.1,
+            false,
+        ));
+        assert!(!allow_redundant_disable_flagging_for_known_gap_cop(
+            "Security/YAMLLoad",
+            3.0,
+            true,
         ));
         assert!(allow_redundant_disable_flagging_for_known_gap_cop(
             "Security/YAMLLoad",
-            3.1
+            3.1,
+            true,
         ));
     }
 
