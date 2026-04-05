@@ -44,9 +44,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 from corpus_stress import VENDOR_CONFIGS, parse_enforced_styles  # noqa: E402
 
-# Relative to the variant_batches/ subdirectory where generated configs live.
-# RuboCop resolves inherit_from relative to the config file's directory.
-BASELINE_PATH = "../baseline_rubocop.yml"
+# Absolute path to the baseline config. RuboCop resolves inherit_from
+# relative to the config file's directory, so a relative path only works
+# when configs are generated in bench/corpus/variant_batches/. Using the
+# absolute path makes it work from any output directory (e.g. temp dirs
+# created by check_cop.py).
+BASELINE_PATH = str(Path(__file__).resolve().parent / "baseline_rubocop.yml")
 
 
 MAX_BATCHES = 3
