@@ -750,6 +750,38 @@ def test_load_variant_baselines_no_run_id():
     assert check_cop.load_variant_baselines("Style/Foo", None) == {}
 
 
+def test_variant_batch_configs_have_resolvable_inherit_from(tmp_path):
+    """Variant batch configs must use inherit_from paths that resolve from the config's directory.
+
+    Regression test: when configs were generated in a temp dir, inherit_from: ../baseline_rubocop.yml
+    pointed to nothing, causing rubocop to silently return 0 offenses and making all nitrocop
+    offenses look like FP.
+    """
+    import yaml
+
+    # Generate batches in the standard location
+    batches_dir = Path(__file__).parents[2] / "bench" / "corpus" / "variant_batches"
+    if not batches_dir.exists():
+        import sys
+        sys.path.insert(0, str(Path(__file__).parents[2] / "bench" / "corpus"))
+        from gen_variant_batches import generate_batches
+        generate_batches(batches_dir)
+
+    class _Loader(yaml.SafeLoader):
+        pass
+    _Loader.add_multi_constructor("!", lambda loader, suffix, node: loader.construct_scalar(node))
+
+    for batch_file in sorted(batches_dir.glob("variant_batch_*.yml")):
+        data = yaml.load(batch_file.read_text(), Loader=_Loader)
+        inherit = data.get("inherit_from", "")
+        if inherit:
+            resolved = (batch_file.parent / inherit).resolve()
+            assert resolved.exists(), (
+                f"{batch_file.name}: inherit_from '{inherit}' resolves to "
+                f"{resolved} which does not exist"
+            )
+
+
 def test_run_variant_checks_handles_rubocop_errors(tmp_path):
     """When rubocop returns negative count (error), still produces results."""
     batches = tmp_path / "batches"

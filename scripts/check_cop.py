@@ -1459,8 +1459,9 @@ def main():
             # Generate variant batch configs if not provided
             variant_batches = args.variant_batches_dir
             if not variant_batches:
-                import tempfile
-                variant_batches = tempfile.mkdtemp(prefix="variant_batches_")
+                # Generate into the repo's variant_batches dir so that
+                # inherit_from: ../baseline_rubocop.yml resolves correctly.
+                variant_batches = str(PROJECT_ROOT / "bench" / "corpus" / "variant_batches")
                 sys.path.insert(0, str(PROJECT_ROOT / "bench" / "corpus"))
                 from gen_variant_batches import generate_batches
                 generate_batches(Path(variant_batches))
