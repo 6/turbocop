@@ -1,7 +1,18 @@
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
+/// Mirrors RuboCop's style-dependent scope for development dependencies.
+///
+/// `EnforcedStyle: gemspec` was previously a complete FN path: the cop returned
+/// early and only included `*.gemspec`, so literal `gem "foo"` declarations in
+/// `Gemfile` and `gems.rb` were never checked. The fix keeps the existing
+/// line-based `add_development_dependency` detection for `Gemfile`/`gems.rb`
+/// styles and adds an AST-based `gem` matcher for `gemspec` style, which
+/// preserves RuboCop's literal-string-only behavior (`AllowedGems`, percent
+/// strings, and `.freeze` exclusions all still line up with `(str ...)`).
 pub struct DevelopmentDependencies;
 
 impl Cop for DevelopmentDependencies {
@@ -10,7 +21,7 @@ impl Cop for DevelopmentDependencies {
     }
 
     fn default_include(&self) -> &'static [&'static str] {
-        &["**/*.gemspec"]
+        &["**/*.gemspec", "**/Gemfile", "**/gems.rb"]
     }
 
     fn check_lines(
@@ -68,11 +79,88 @@ impl Cop for DevelopmentDependencies {
                     source,
                     line_idx + 1,
                     pos + 1, // skip the dot
-                    format!("Specify development dependencies in `{style}` instead of gemspec."),
+                    development_dependencies_message(style),
                 ));
             }
         }
     }
+
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        let style = config.get_str("EnforcedStyle", "Gemfile");
+        if style != "gemspec" {
+            return;
+        }
+
+        let mut visitor = GemspecStyleGemVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            allowed_gems: config.get_string_array("AllowedGems").unwrap_or_default(),
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
+
+fn development_dependencies_message(style: &str) -> String {
+    if style == "gemspec" {
+        "Specify development dependencies in `gemspec`.".to_string()
+    } else {
+        format!("Specify development dependencies in `{style}` instead of gemspec.")
+    }
+}
+
+struct GemspecStyleGemVisitor<'a> {
+    cop: &'a DevelopmentDependencies,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    allowed_gems: Vec<String>,
+}
+
+impl<'pr> Visit<'pr> for GemspecStyleGemVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.name().as_slice() != b"gem" {
+            ruby_prism::visit_call_node(self, node);
+            return;
+        }
+
+        let Some(gem_name) = gem_name_from_call(node) else {
+            ruby_prism::visit_call_node(self, node);
+            return;
+        };
+        if self
+            .allowed_gems
+            .iter()
+            .any(|allowed| allowed.as_bytes() == gem_name.as_slice())
+        {
+            ruby_prism::visit_call_node(self, node);
+            return;
+        }
+
+        let loc = node.message_loc().unwrap_or(node.location());
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            development_dependencies_message("gemspec"),
+        ));
+
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+fn gem_name_from_call(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
+    let first_arg = util::first_positional_arg(call)?;
+    util::string_value(&first_arg)
 }
 
 /// Check if a string has an unclosed parenthesis (more opens than closes).
@@ -309,8 +397,66 @@ fn is_gem_allowed(after_method: &str, allowed_gems: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
     crate::cop_fixture_tests!(
         DevelopmentDependencies,
         "cops/gemspec/development_dependencies"
     );
+
+    fn gemspec_style_config(allowed_gems: &[&str]) -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("gemspec".to_string()),
+        );
+        if !allowed_gems.is_empty() {
+            options.insert(
+                "AllowedGems".to_string(),
+                serde_yml::Value::Sequence(
+                    allowed_gems
+                        .iter()
+                        .map(|gem| serde_yml::Value::String((*gem).to_string()))
+                        .collect(),
+                ),
+            );
+        }
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_gemfile_gemspec_style() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &DevelopmentDependencies,
+            include_bytes!(
+                "../../../tests/fixtures/cops/gemspec/development_dependencies/offense_gemfile_gemspec_style.rb"
+            ),
+            gemspec_style_config(&[]),
+        );
+    }
+
+    #[test]
+    fn offense_gems_rb_gemspec_style() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &DevelopmentDependencies,
+            include_bytes!(
+                "../../../tests/fixtures/cops/gemspec/development_dependencies/offense_gems_rb_gemspec_style.rb"
+            ),
+            gemspec_style_config(&[]),
+        );
+    }
+
+    #[test]
+    fn no_offense_gemspec_style() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &DevelopmentDependencies,
+            include_bytes!(
+                "../../../tests/fixtures/cops/gemspec/development_dependencies/no_offense_gemspec_style.rb"
+            ),
+            gemspec_style_config(&["allowed"]),
+        );
+    }
 }
