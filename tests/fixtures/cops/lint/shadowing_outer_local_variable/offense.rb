@@ -82,6 +82,16 @@ def some_method
   end
 end
 
+# Block param inside def self body still shadows that method's own param
+class Client
+  def self.search(options)
+    Options.propagate_important_options(options) do |options|
+                                                     ^^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `options`.
+      options
+    end
+  end
+end
+
 # Post parameter shadows in inner block
 def configure(*items, tail)
   jobs.each do |tail|

@@ -168,3 +168,13 @@ end
 class DenyPolicy
   def method; end
 end
+
+# FP fix: inline comment on preceding code line counts as documentation
+# RuboCop's ast_with_comments associates inline comments (e.g., on `else`)
+# with the next AST node, so they count as documentation for the class below.
+if true
+else # For AR >= 4.1
+  class InElseWithComment
+    def method; end
+  end
+end

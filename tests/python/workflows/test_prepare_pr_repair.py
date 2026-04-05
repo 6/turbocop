@@ -241,6 +241,69 @@ def test_prefetch_corpus_context_uses_runtime_env_paths():
     ]
 
 
+def test_extract_cop_from_title():
+    assert prepare_pr_repair.extract_cop_from_title("[bot] Fix Naming/HeredocDelimiterCase") == "Naming/HeredocDelimiterCase"
+    assert prepare_pr_repair.extract_cop_from_title("[bot] Fix Style/FrozenStringLiteralComment") == "Style/FrozenStringLiteralComment"
+    assert prepare_pr_repair.extract_cop_from_title("Random PR title") is None
+    assert prepare_pr_repair.extract_cop_from_title("Fix Layout/LineLength (#1440)") == "Layout/LineLength"
+
+
+def test_cop_check_gate_comment_step_detected_as_cop_check_failure():
+    """The 'Comment cop-check summary on PR' step triggers cop_check_failure."""
+    run = {
+        "jobs": [
+            make_job("cop-check-gate", ["Comment cop-check summary on PR"]),
+        ],
+    }
+    c = prepare_pr_repair.classify_run(run)
+    assert c["cop_check_failure"] is True
+
+
+def test_build_variant_context_empty_without_data():
+    """Returns empty string when no variant data is available."""
+    result = prepare_pr_repair.build_variant_context("Style/NonExistent")
+    assert result == ""
+
+
+def test_build_prompt_includes_variant_context():
+    """Variant context is included in the prompt when provided."""
+    run = {"number": 1, "workflowName": "Checks"}
+    classification = {
+        "route": "hard",
+        "backend": "claude-hard",
+        "jobs": [],
+        "verification_commands": [],
+        "reason": "cop-check-gate failure",
+    }
+    pr_meta = {"number": "1524", "title": "[bot] Fix Naming/Foo", "headRefName": "fix/foo"}
+    variant_ctx = "## Variant Style Regression\n\nBroken styles:\n| bar | 100 | 50 | 10 |"
+
+    prompt = prepare_pr_repair.build_prompt(
+        run=run, classification=classification, pr_meta=pr_meta,
+        diff_stat="1 file changed", diff_text="diff --git a/foo",
+        extra_context="", variant_context=variant_ctx,
+    )
+    assert "## Variant Style Regression" in prompt
+    assert "| bar | 100 | 50 | 10 |" in prompt
+
+
+def test_build_prompt_no_variant_context_when_empty():
+    run = {"number": 1, "workflowName": "Checks"}
+    classification = {
+        "route": "hard",
+        "backend": "claude-hard",
+        "jobs": [],
+        "verification_commands": [],
+        "reason": "test",
+    }
+    pr_meta = {"number": "1", "title": "test", "headRefName": "test"}
+    prompt = prepare_pr_repair.build_prompt(
+        run=run, classification=classification, pr_meta=pr_meta,
+        diff_stat="", diff_text="", extra_context="",
+    )
+    assert "Variant Style Regression" not in prompt
+
+
 if __name__ == "__main__":
     test_easy_linux_failure_routes_to_codex()
     test_hard_cop_check_routes_to_codex()
@@ -255,4 +318,9 @@ if __name__ == "__main__":
     test_prompt_includes_route_and_failed_packet()
     test_normalize_log_strips_actions_prefix_and_cleanup_noise()
     test_prefetch_corpus_context_uses_runtime_env_paths()
+    test_extract_cop_from_title()
+    test_cop_check_gate_comment_step_detected_as_cop_check_failure()
+    test_build_variant_context_empty_without_data()
+    test_build_prompt_includes_variant_context()
+    test_build_prompt_no_variant_context_when_empty()
     print("All tests passed.")
