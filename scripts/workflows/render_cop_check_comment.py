@@ -80,11 +80,13 @@ def aggregate_rows(rows: list[dict]) -> list[dict]:
         else:
             default_rows.append(row)
 
-    # Determine variant pass/fail based on aggregated delta
+    # Determine variant pass/fail based on aggregated delta.
+    # Regression takes priority over error — a regression with some
+    # rubocop errors is still a regression that should block.
     for agg in variant_agg.values():
         fp_delta = agg["local_fp"] - agg["bl_fp"]
         fn_delta = agg["local_fn"] - agg["bl_fn"]
-        if agg["result"] != "error" and (fp_delta > 0 or fn_delta > 0):
+        if fp_delta > 0 or fn_delta > 0:
             agg["result"] = "regression"
         elif agg["result"] != "error":
             agg["result"] = "pass"

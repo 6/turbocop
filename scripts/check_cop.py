@@ -1500,8 +1500,6 @@ def main():
                         )
                         # Emit SUMMARY lines for CI PR comment (variant rows)
                         v_result = "pass"
-                        if vr["rubocop_errors"] > 0:
-                            v_result = "error"
                         print(
                             f"SUMMARY|{args.cop} ({vr['style_label']})"
                             f"|{vr['baseline_fp']}|{vr['baseline_fn']}"

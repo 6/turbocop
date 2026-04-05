@@ -55,6 +55,17 @@ def test_aggregate_rows_variant_regression_detected():
     assert variant[0]["result"] == "regression"
 
 
+def test_aggregate_rows_variant_regression_even_with_errors():
+    """Regression takes priority over error status from individual shards."""
+    rows = [
+        {"cop": "Naming/Foo (bar)", "bl_fp": 6, "bl_fn": 0, "local_fp": 5000, "local_fn": 0, "result": "error"},
+        {"cop": "Naming/Foo (bar)", "bl_fp": 6, "bl_fn": 0, "local_fp": 3000, "local_fn": 0, "result": "error"},
+    ]
+    result = mod.aggregate_rows(rows)
+    variant = [r for r in result if mod.is_variant_row(r["cop"])]
+    assert variant[0]["result"] == "regression"  # not "error"
+
+
 def test_aggregate_rows_variant_improvement_passes():
     """Aggregated variant with fewer FP than baseline passes."""
     rows = [
