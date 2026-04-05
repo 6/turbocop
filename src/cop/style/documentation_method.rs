@@ -98,6 +98,22 @@ const PUBLIC_MODIFIERS: &[&[u8]] = &[b"module_function ", b"ruby2_keywords "];
 /// documentation by nitrocop but RuboCop's `DirectiveComment` matches `# rubocop:` anywhere
 /// in the comment text, treating the entire line as a directive. Fix: check for
 /// `# rubocop:` as a substring in the comment text.
+///
+/// **Investigation (2026-04-04, fixture sync):** Re-checked several reported FN shapes
+/// against RuboCop and the current visitor before changing logic:
+/// `album.instance_eval { def name=; raise; end }`,
+/// `__skip__ = def new_field(**kwargs)`,
+/// `__skip__ = def new_input_field(**kwargs)`, and
+/// `class << obj; def close; end; end`.
+/// nitrocop already reports these, and RuboCop reports them at the inner `def`
+/// column rather than the start of the wrapping expression. The local fixture had
+/// stale column-0 markers for those wrapped forms, so the only change needed here
+/// was to sync the fixture annotations. A sampled corpus rerun
+/// (`check_cop.py Style/DocumentationMethod --rerun --clone --sample 15`) showed
+/// no per-repo regressions after that sync. Remaining corpus divergence appears to
+/// depend on full-file/config context and should be re-verified on cloned repos
+/// before changing detection logic again. One likely context factor: RuboCop's
+/// default config excludes `spec/**/*` and `test/**/*` for this cop.
 pub struct DocumentationMethod;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
