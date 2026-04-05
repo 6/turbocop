@@ -98,6 +98,27 @@ use crate::parse::source::SourceFile;
 /// Fix: moved symbol checking from `check_node` to the `check_source` visitor, which
 /// overrides `visit_hash_pattern_node` to skip SymbolNode keys while still visiting
 /// assoc values.
+///
+/// ## Style variant fix (2026-04-05) — snake_case & non_integer
+///
+/// Variant testing reported FN=45 for snake_case and FN=60/FP=61 for non_integer.
+///
+/// FN root cause: we were stripping sigils (`@`, `@@`, `$`) before checking the
+/// style regex, but RuboCop checks the FULL name including sigil. For normalcase
+/// this doesn't matter (the `[^_\d]\d+` alternative covers sigil chars), but for
+/// snake_case and non_integer, `$0` stripped to `"0"` (all digits = valid) instead
+/// of `"$0"` (invalid — `$` is not `_` for snake_case, not all digits for
+/// non_integer). Fix: pass the full name with sigil to `check_number_style`.
+///
+/// FP root cause (2 of 61): `%s()` creates an empty symbol that is `:dsym` in
+/// Parser gem (like standalone `:""`), so RuboCop's `on_sym` never fires. Our
+/// empty-symbol skip only checked for colon-prefix openings. Fix: also skip
+/// symbols whose opening starts with `%` (covers `%s()` format).
+///
+/// Remaining 59 FP: all from jruby files with non-UTF-8 encoding declarations
+/// (`# coding: US-ASCII`, `# encoding:windows-1252`). RuboCop silently skips
+/// these files (0 files inspected), while Prism handles them. This is a
+/// file-level encoding issue, not fixable in the cop.
 pub struct VariableNumber;
 
 const DEFAULT_ALLOWED: &[&str] = &[
@@ -221,7 +242,7 @@ impl Cop for VariableNumber {
                 if let Some(diag) = check_number_style(
                     self,
                     source,
-                    bare,
+                    name_str,
                     &loc,
                     enforced_style,
                     "variable",
@@ -412,16 +433,19 @@ impl<'pr> ruby_prism::Visit<'pr> for VariableNumberVisitor<'_> {
         }
         let name = node.unescaped();
         let name_str = std::str::from_utf8(name).unwrap_or("");
-        // Skip standalone empty symbols (:'' and :""). In Parser gem
-        // with TargetRubyVersion >= 4.0, these are :dsym (not :sym),
-        // so RuboCop's on_sym never fires. Only hash-key empty symbols
-        // ("": val) become :sym in Parser 4.0. In Prism, standalone
-        // symbols have a colon-prefix opening, while hash-key symbols don't.
+        // Skip empty symbols that Parser gem represents as :dsym (where
+        // RuboCop's on_sym never fires). Only hash-key empty symbols
+        // ("": val) become :sym in Parser 4.0. In Prism, all empty
+        // symbol forms are SymbolNode, so we distinguish by opening:
+        // - Colon-prefix (:"", :'') → :dsym in Parser → skip
+        // - Percent-s (%s()) → :dsym in Parser → skip
+        // - Quote-only ("": in hash) → :sym in Parser 4.0 → check
         if name_str.is_empty() {
-            let is_standalone = node
-                .opening_loc()
-                .is_some_and(|loc| loc.as_slice().starts_with(b":"));
-            if is_standalone {
+            let is_dsym = node.opening_loc().is_some_and(|loc| {
+                let s = loc.as_slice();
+                s.starts_with(b":") || s.starts_with(b"%")
+            });
+            if is_dsym {
                 return;
             }
         }
@@ -509,7 +533,7 @@ impl VariableNumber {
             if let Some(diag) = check_number_style(
                 self,
                 source,
-                bare,
+                name_str,
                 &loc,
                 enforced_style,
                 "variable",
@@ -723,5 +747,42 @@ mod tests {
         assert_eq!(diags.len(), 0, "standalone :\"\" should NOT be flagged");
         let diags = crate::testutil::run_cop_full(&VariableNumber, b":''\n");
         assert_eq!(diags.len(), 0, "standalone :'' should NOT be flagged");
+    }
+
+    #[test]
+    fn dollar_zero_flagged_under_snake_case() {
+        // $0 under snake_case: RuboCop checks the full name "$0" against
+        // (?:\D|_\d+|\A\d+)\z — "$0" is NOT all digits and "$" is not "_",
+        // so it's invalid. Our code must pass the full name (with sigil)
+        // to the style check, not just the bare "0".
+        let mut config = CopConfig::default();
+        config
+            .options
+            .insert("EnforcedStyle".into(), serde_yml::Value::from("snake_case"));
+        let diags =
+            crate::testutil::run_cop_full_with_config(&VariableNumber, b"$0 = 'title'\n", config);
+        assert_eq!(diags.len(), 1, "$0 should be flagged under snake_case");
+    }
+
+    #[test]
+    fn dollar_zero_flagged_under_non_integer() {
+        // $0 under non_integer: RuboCop checks "$0" — NOT all digits,
+        // doesn't end with non-digit → invalid.
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "EnforcedStyle".into(),
+            serde_yml::Value::from("non_integer"),
+        );
+        let diags =
+            crate::testutil::run_cop_full_with_config(&VariableNumber, b"$0 = 'title'\n", config);
+        assert_eq!(diags.len(), 1, "$0 should be flagged under non_integer");
+    }
+
+    #[test]
+    fn dollar_zero_valid_under_normalcase() {
+        // $0 under normalcase: RuboCop checks "$0" — "$" matches [^_\d]
+        // before the trailing digit "0", so it's valid.
+        let diags = crate::testutil::run_cop_full(&VariableNumber, b"$0 = 'title'\n");
+        assert_eq!(diags.len(), 0, "$0 should NOT be flagged under normalcase");
     }
 }
