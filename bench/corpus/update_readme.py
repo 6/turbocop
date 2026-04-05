@@ -270,11 +270,11 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         lines.append(f"**[{gem['key']}]({gem['url']})** `{version}` ({total:,} cops)")
         lines.append("")
 
-        # Simple table: Department, Cops, Exact match (default), All variants
-        hdr = "| Department | Cops | Exact match (default) |"
+        # Simple table: Department, Cops, Exact match — default config, All variants
+        hdr = "| Department | Cops | Exact match — default config |"
         sep = "|------------|-----:|----------------------:|"
         if gem_has_variant:
-            hdr += " Exact match (all variants) |"
+            hdr += " Exact match — all variants |"
             sep += "---------------------------:|"
         if no_data > 0:
             hdr += " No data |"
