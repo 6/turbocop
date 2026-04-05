@@ -68,12 +68,12 @@ When tested with all style variants (e.g. `EnforcedStyle: comma`), 728 of 915 ma
 | Layout | 100 | 89 | 59 |
 | Lint | 148 | 145 | 141 |
 | Style | 287 | 268 | 221 |
-| Metrics | 10 | **✓ 10** | **✓ 10** |
-| Naming | 19 | **✓ 19** | 13 |
-| Security | 6 | **✓ 6** | **✓ 6** |
-| Bundler | 7 | **✓ 7** | **✓ 7** |
-| Gemspec | 10 | **✓ 10** | 9 |
-| Migration | 1 | **✓ 1** | **✓ 1** |
+| Metrics | 10 | **10 ✓** | **10 ✓** |
+| Naming | 19 | **19 ✓** | 13 |
+| Security | 6 | **6 ✓** | **6 ✓** |
+| Bundler | 7 | **7 ✓** | **7 ✓** |
+| Gemspec | 10 | **10 ✓** | 9 |
+| Migration | 1 | **1 ✓** | **1 ✓** |
 | **Total** | **588** | **555 (94.3%)** | **467 (79.4%)** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
@@ -86,25 +86,25 @@ When tested with all style variants (e.g. `EnforcedStyle: comma`), 728 of 915 ma
 
 | Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
-| Performance | 52 | **✓ 52** | **✓ 52** |
+| Performance | 52 | **52 ✓** | **52 ✓** |
 
 **[rubocop-rspec](https://github.com/rubocop/rubocop-rspec)** `3.9.0` (113 cops)
 
 | Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
-| RSpec | 113 | **✓ 113** | 100 |
+| RSpec | 113 | **113 ✓** | 100 |
 
 **[rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails)** `2.32.0` (8 cops)
 
 | Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
-| RSpecRails | 8 | **✓ 8** | 5 |
+| RSpecRails | 8 | **8 ✓** | 5 |
 
 **[rubocop-factory_bot](https://github.com/rubocop/rubocop-factory_bot)** `2.28.0` (11 cops)
 
 | Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
-| FactoryBot | 11 | **✓ 11** | 9 |
+| FactoryBot | 11 | **11 ✓** | 9 |
 
 **[rubocop-rake](https://github.com/rubocop/rubocop-rake)** `0.7.1` (5 cops)
 
