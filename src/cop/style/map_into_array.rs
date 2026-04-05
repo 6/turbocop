@@ -44,6 +44,20 @@ use ruby_prism::Visit;
 ///   only body statement is an `each` with push into the tap block parameter.
 ///   The tap block must contain only the each call (no other statements).
 ///
+/// ## Investigation Notes (2026-04-05)
+///
+/// **FP root causes fixed (3 FP):**
+/// - `Machinery::Array.new` (qualified `ConstantPathNode`) was incorrectly treated as
+///   an empty array initializer. RuboCop's pattern `(const {nil? cbase} :Array)` only
+///   matches bare `Array` or `::Array`, not qualified paths like `Machinery::Array`.
+///   Fixed by checking `cp.parent().is_none()` on `ConstantPathNode`.
+/// - Destination variable referenced in the pushed expression (e.g.,
+///   `dest << XPathNode.new(node, position: dest.size + 1)` or
+///   `routes << Route.new(train, routes: routes)`). RuboCop's
+///   `dest_var.references.one?` check ensures only one reference (the push receiver)
+///   exists. Fixed by counting explicit VF references within the block body and
+///   skipping when count > 1.
+///
 /// ## Migration to VariableForce (2026-04-02)
 ///
 /// Migrated from a standalone AST visitor with manual variable analysis to a
@@ -133,9 +147,11 @@ fn is_empty_array_value(value: &ruby_prism::Node<'_>) -> bool {
             let is_array_const = receiver
                 .as_constant_read_node()
                 .is_some_and(|c| c.name().as_slice() == b"Array")
-                || receiver
-                    .as_constant_path_node()
-                    .is_some_and(|cp| cp.name().is_some_and(|n| n.as_slice() == b"Array"));
+                || receiver.as_constant_path_node().is_some_and(|cp| {
+                    // Only match `::Array` (cbase), not qualified paths like `Machinery::Array`.
+                    // RuboCop's pattern uses `(const {nil? cbase} :Array)`.
+                    cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"Array")
+                });
             if is_array_const {
                 if method == b"new" {
                     // Array.new or Array.new([])
@@ -251,6 +267,24 @@ impl variable_force::VariableForceConsumer for MapIntoArray {
                                 && a.node_offset < candidate.each_offset
                         });
                         if has_intermediate_operator_assign {
+                            continue;
+                        }
+
+                        // Check that the dest var is referenced at most once in the block
+                        // body (the push receiver). Additional references mean the dest
+                        // var is used in the pushed expression (e.g., `dest << dest.size`)
+                        // and can't be converted to `map`. RuboCop checks
+                        // `dest_var.references.one?` over the full init..each range.
+                        let block_body_ref_count = var
+                            .references
+                            .iter()
+                            .filter(|r| {
+                                r.explicit
+                                    && r.node_offset >= *block_body_start
+                                    && r.node_offset <= *block_body_end
+                            })
+                            .count();
+                        if block_body_ref_count > 1 {
                             continue;
                         }
 
