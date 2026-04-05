@@ -256,6 +256,9 @@ jobs:
           echo "cop-check failed: ${{ needs.cop-check.result }}"
           exit 1
 
+      - uses: actions/checkout@v6
+        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
+
       - name: Download cop-check summaries
         if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
         uses: actions/download-artifact@v8
@@ -264,9 +267,6 @@ jobs:
           path: summaries/
           merge-multiple: true
         continue-on-error: true
-
-      - uses: actions/checkout@v6
-        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
 
       - name: Comment cop-check summary on PR
         id: comment
