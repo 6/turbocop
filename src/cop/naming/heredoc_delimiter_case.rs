@@ -5,6 +5,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Fixed: the `is_uppercase` / `is_lowercase` checks previously required every
+/// byte to be `[A-Z_0-9]` or `[a-z_0-9]`, which caused false positives for
+/// quoted heredoc delimiters containing non-alphanumeric characters (e.g.,
+/// `'end-of-data'`, `"begin;"`) under the `lowercase` EnforcedStyle variant.
+/// The fix mirrors Ruby's `String#upcase`/`String#downcase` behavior: non-alphabetic
+/// characters are ignored in the case check since case conversion leaves them unchanged.
 pub struct HeredocDelimiterCase;
 
 impl Cop for HeredocDelimiterCase {
@@ -115,12 +121,15 @@ impl Cop for HeredocDelimiterCase {
             return;
         }
 
+        // Match Ruby's String#upcase / String#downcase behavior: non-alphabetic
+        // characters are unchanged by case conversion, so they never affect the
+        // "is already correct case?" check.
         let is_uppercase = delimiter
             .iter()
-            .all(|b| b.is_ascii_uppercase() || *b == b'_' || b.is_ascii_digit());
+            .all(|b| !b.is_ascii_alphabetic() || b.is_ascii_uppercase());
         let is_lowercase = delimiter
             .iter()
-            .all(|b| b.is_ascii_lowercase() || *b == b'_' || b.is_ascii_digit());
+            .all(|b| !b.is_ascii_alphabetic() || b.is_ascii_lowercase());
 
         let offense = match enforced_style {
             "uppercase" => !is_uppercase,
@@ -251,6 +260,51 @@ mod tests {
             diags.len() >= 2,
             "should flag both 'begin;' and 'end;' heredoc delimiters, got {}",
             diags.len()
+        );
+    }
+
+    #[test]
+    fn lowercase_style_non_alnum_delimiter_no_offense() {
+        // Delimiters like 'end-of-data' that are already lowercase should not be flagged
+        // when EnforcedStyle is lowercase. Non-alphabetic characters (e.g., '-', ';', '.')
+        // should not affect the case check, matching Ruby's String#downcase behavior.
+        use std::collections::HashMap;
+        let mut options = HashMap::new();
+        options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("lowercase".to_string()),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+        let input = b"x = <<~'end-of-data'\n  hello\nend-of-data\n";
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &HeredocDelimiterCase,
+            input,
+            config,
+        );
+    }
+
+    #[test]
+    fn lowercase_style_uppercase_non_alnum_delimiter_offense() {
+        // Delimiters like 'END-OF-DATA' should still be flagged when EnforcedStyle is lowercase
+        use std::collections::HashMap;
+        let mut options = HashMap::new();
+        options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("lowercase".to_string()),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+        let input = b"x = <<~'END-OF-DATA'\n  hello\nEND-OF-DATA\n";
+        let diags = crate::testutil::run_cop_full_with_config(&HeredocDelimiterCase, input, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag uppercase delimiter with non-alnum chars"
         );
     }
 
