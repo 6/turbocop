@@ -19,3 +19,12 @@ x = "#{42}"
 "#{CGI.escape("A&(! 234k !@ kasdj232\#$ kjw35")}"
 # Strings directly inside backtick xstr interpolation are not flagged
 `passbolt #{config["database"]} --json`
+# Multiline string literals inside interpolation are not flagged
+# (RuboCop's parser represents these as dstr without loc.begin)
+"prefix#{"
+      -- some sql" unless is_mssql}"
+"#{true ? 'short' : "long
+  text
+  here"}"
+"#{method(" +
+          ")}"
