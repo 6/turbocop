@@ -5,6 +5,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Fixed: case checks now use `b.to_ascii_uppercase() == *b` (matching RuboCop's
+/// `source.upcase == source` approach) instead of whitelist-based `is_ascii_uppercase() || _ || digit`.
+/// The old check caused FPs in the lowercase style variant for quoted heredoc delimiters
+/// containing non-casing characters (e.g., `<<-"begin;"` — the `;` failed the whitelist
+/// but is case-neutral). Also fixes corresponding FPs in uppercase mode for patterns like
+/// `<<-"BEGIN;"`.
 pub struct HeredocDelimiterCase;
 
 impl Cop for HeredocDelimiterCase {
@@ -115,12 +121,11 @@ impl Cop for HeredocDelimiterCase {
             return;
         }
 
-        let is_uppercase = delimiter
-            .iter()
-            .all(|b| b.is_ascii_uppercase() || *b == b'_' || b.is_ascii_digit());
-        let is_lowercase = delimiter
-            .iter()
-            .all(|b| b.is_ascii_lowercase() || *b == b'_' || b.is_ascii_digit());
+        // Match RuboCop's approach: `source.upcase == source` / `source.downcase == source`.
+        // Non-casing characters (;, -, ., etc.) are unaffected by case conversion and
+        // should not cause a mismatch.
+        let is_uppercase = delimiter.iter().all(|b| b.to_ascii_uppercase() == *b);
+        let is_lowercase = delimiter.iter().all(|b| b.to_ascii_lowercase() == *b);
 
         let offense = match enforced_style {
             "uppercase" => !is_uppercase,
@@ -251,6 +256,53 @@ mod tests {
             diags.len() >= 2,
             "should flag both 'begin;' and 'end;' heredoc delimiters, got {}",
             diags.len()
+        );
+    }
+
+    fn lowercase_config() -> CopConfig {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("lowercase".to_string()),
+        );
+        config
+    }
+
+    #[test]
+    fn lowercase_style_non_word_chars_in_delimiter_no_offense() {
+        // Delimiters like "begin;" are already lowercase — the semicolon should not
+        // cause a false positive. RuboCop checks `source.downcase == source`, so
+        // non-casing characters (;, -, etc.) are treated as neutral.
+        let config = lowercase_config();
+        let input = b"x = <<-\"begin;\"\n  hello\nbegin;\n";
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &HeredocDelimiterCase,
+            input,
+            config,
+        );
+    }
+
+    #[test]
+    fn lowercase_style_uppercase_with_non_word_chars_offense() {
+        // "BEGIN;" should still be flagged in lowercase mode since it has uppercase letters.
+        let config = lowercase_config();
+        let input = b"x = <<-\"BEGIN;\"\n  hello\nBEGIN;\n";
+        let diags = crate::testutil::run_cop_full_with_config(&HeredocDelimiterCase, input, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag uppercase delimiter with non-word chars in lowercase mode"
+        );
+    }
+
+    #[test]
+    fn uppercase_style_non_word_chars_uppercase_no_offense() {
+        // "BEGIN;" is correctly uppercase — semicolon should not cause a false positive.
+        let input = b"x = <<-\"BEGIN;\"\n  hello\nBEGIN;\n";
+        let diags = crate::testutil::run_cop_full(&HeredocDelimiterCase, input);
+        assert!(
+            diags.is_empty(),
+            "should not flag uppercase delimiter with non-word chars in uppercase mode"
         );
     }
 
