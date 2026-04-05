@@ -91,3 +91,34 @@ end
 def self.call!(*, **, &)
   call(*, **, &).raise_if_error!
 end
+
+# Nested defs with same param names mark those names as "referenced" (RuboCop walks
+# into nested defs for lvar collection), suppressing anonymous forwarding.
+def Testing(*args, &block)
+  Class.new(Object) do
+    def self.slug_for(*args)
+      args.flatten.compact.join('-')
+    end
+
+    slug = slug_for(*args)
+
+    def assert(*args, &block)
+      args.join(' ')
+      block.call
+    end
+
+    module_eval &block
+    self
+  end
+end
+
+# Nested def with **args shadows outer *args name, suppressing *args forwarding
+def keyword_init_struct(*args)
+  ::Struct.new(*args).tap do |klass|
+    klass.prepend(Module.new {
+      def initialize(**args)
+        args.each { |k, v| public_send("#{k}=", v) }
+      end
+    })
+  end
+end
