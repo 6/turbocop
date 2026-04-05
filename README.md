@@ -63,7 +63,7 @@ When tested with all style variants (e.g. `EnforcedStyle: comma`), 728 of 915 ma
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
-| Department | Cops | Exact match — default config | Exact match — all variants |
+| Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
 | Layout | 100 | 89 | 59 |
 | Lint | 148 | 145 | 141 |
@@ -78,37 +78,37 @@ When tested with all style variants (e.g. `EnforcedStyle: comma`), 728 of 915 ma
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
-| Department | Cops | Exact match — default config | Exact match — all variants |
+| Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
 | Rails | 138 | 120 | 92 |
 
 **[rubocop-performance](https://github.com/rubocop/rubocop-performance)** `1.26.1` (52 cops)
 
-| Department | Cops | Exact match — default config | Exact match — all variants |
+| Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
 | Performance | 52 | **✓ 52** | **✓ 52** |
 
 **[rubocop-rspec](https://github.com/rubocop/rubocop-rspec)** `3.9.0` (113 cops)
 
-| Department | Cops | Exact match — default config | Exact match — all variants |
+| Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
 | RSpec | 113 | **✓ 113** | 100 |
 
 **[rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails)** `2.32.0` (8 cops)
 
-| Department | Cops | Exact match — default config | Exact match — all variants |
+| Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
 | RSpecRails | 8 | **✓ 8** | 5 |
 
 **[rubocop-factory_bot](https://github.com/rubocop/rubocop-factory_bot)** `2.28.0` (11 cops)
 
-| Department | Cops | Exact match — default config | Exact match — all variants |
+| Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
 | FactoryBot | 11 | **✓ 11** | 9 |
 
 **[rubocop-rake](https://github.com/rubocop/rubocop-rake)** `0.7.1` (5 cops)
 
-| Department | Cops | Exact match — default config | Exact match — all variants |
+| Department | Cops | Exact match (default) | Exact match (all variants) |
 |------------|-----:|----------------------:|---------------------------:|
 | Rake | 5 | 3 | 3 |
 
