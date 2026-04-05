@@ -33,3 +33,16 @@ foo if !condition
 foo unless ()
 # Explicit begin...end conditions are not flagged
 foo unless begin x != y end
+# Pattern matching guards (case/in) — unless is a guard, not a conditional
+case element.name
+in "div" unless element.at("div").present?
+  element.name = "p"
+else
+  nil
+end
+case [hunk, attributes]
+in [{ path: path }, { after: }] unless created_at > after
+  :skip
+else
+  :ok
+end
