@@ -140,3 +140,13 @@ class Resource
   # Additional methods follow
   def fetch; end
 end
+
+# super with a block argument (&:symbol) — not redundant, adds behavior
+class BlockArgPolicy
+  def initialize
+    super &:should_retry?
+  end
+
+  def should_retry?
+  end
+end

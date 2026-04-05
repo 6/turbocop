@@ -117,6 +117,19 @@ use crate::parse::source::SourceFile;
 /// **Fix:** only treat receiverless `private_constant` / `public_constant` calls with exactly one
 /// symbol/string argument as namespace-safe, and only honor inline `:nodoc:` when it starts the
 /// comment text after `#`.
+///
+/// ## Investigation findings (2026-04-04, inline comment on else line)
+///
+/// **FP root cause:** `has_documentation_comment_in_context` walked backward line-by-line and
+/// stopped at any non-comment line.  For `else # For AR >= 4.1` followed by `class JoinDependency`,
+/// the backward walk stopped at `else` and missed the inline comment.  RuboCop's `ast_with_comments`
+/// associates that inline comment with the class node because `else` has no AST node of its own.
+///
+/// **Fix:** when the backward walk hits a non-comment line, check if the code before `#` is a bare
+/// keyword (`else` or `ensure`) that has no AST node.  If so, extract the inline comment and check
+/// whether it counts as documentation.  Lines with expressions (e.g., `module A # comment`) are NOT
+/// included because their AST nodes capture the comment in `ast_with_comments`, preventing it from
+/// reaching the next class/module node.
 pub struct Documentation;
 
 /// Extract the short (unqualified) name from a constant node.
@@ -405,7 +418,26 @@ fn has_documentation_comment_in_context(
         }
 
         if !trimmed.starts_with(b"#") {
-            // Non-comment, non-blank line — stop
+            // Non-comment, non-blank line — but check for inline comments on
+            // bare keyword lines (else, ensure).  In Parser gem's
+            // ast_with_comments, these keywords have no AST node of their own,
+            // so their inline comments (e.g., `else # For AR >= 4.1`) are
+            // associated with the next following AST node — a class/module on
+            // the next line.  Lines with expressions (e.g., `module A # ...`)
+            // DO have AST nodes that capture the comment, so the inline
+            // comment does NOT reach the class on the next line.
+            if !found_doc_comment {
+                if let Some(hash_pos) = trimmed.iter().position(|&b| b == b'#') {
+                    let code_before = trim_bytes(&trimmed[..hash_pos]);
+                    if code_before == b"else" || code_before == b"ensure" {
+                        let inline_comment =
+                            std::str::from_utf8(&trimmed[hash_pos..]).unwrap_or("");
+                        if !is_annotation_or_directive(inline_comment) {
+                            found_doc_comment = true;
+                        }
+                    }
+                }
+            }
             break;
         }
 
