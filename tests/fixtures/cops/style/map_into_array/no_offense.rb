@@ -48,6 +48,19 @@ linespecs = []
 acl.grants.each do |grant|
   linespecs.push(ERB.new(template, trim_mode: '-').result(binding))
 end
+# Qualified constant Array.new (e.g. Machinery::Array.new) is not an empty array init
+packages = Machinery::Array.new
+src.each { |e| packages << e.to_s }
+# Destination variable referenced in the pushed expression
+new_nodeset = []
+ordered_nodeset.each do |node|
+  new_nodeset << XPathNode.new(node, position: new_nodeset.size + 1)
+end
+# Destination variable referenced as keyword argument in push expression
+routes = []
+last_run.each do |train, data|
+  routes << Route.new(train, routes: routes)
+end
 # [].tap with multiple statements in tap block (not pure map)
 [].tap do |items|
   setup_context

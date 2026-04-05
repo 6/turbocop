@@ -89,6 +89,17 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: when `has_space_in_param` is true, bypass the `only_forwarded` check and
 /// fire the param offense unconditionally, matching RuboCop's source-text quirk.
+///
+/// ## Corpus investigation (2026-04-05)
+///
+/// Style variant `explicit` had 0 matches, 2,701 FN because `enforced_style != "anonymous"`
+/// caused an early return — the explicit style was not implemented.
+///
+/// Fix: implemented the `explicit` style. When `EnforcedStyle: explicit`, flag
+/// anonymous block params (`&` without a name) and anonymous block passes (`&`)
+/// in the body, with message "Use explicit block forwarding." Autocorrect replaces
+/// `&` with `&block` (or configured `BlockForwardingName`), skipping correction
+/// when the name is already used by another parameter.
 pub struct BlockForwarding;
 
 impl Cop for BlockForwarding {
@@ -131,10 +142,6 @@ impl Cop for BlockForwarding {
         let enforced_style = config.get_str("EnforcedStyle", "anonymous");
         let _block_forwarding_name = config.get_str("BlockForwardingName", "block");
 
-        if enforced_style != "anonymous" {
-            return;
-        }
-
         let def_node = match node.as_def_node() {
             Some(d) => d,
             None => return,
@@ -150,6 +157,77 @@ impl Cop for BlockForwarding {
             Some(b) => b,
             None => return,
         };
+
+        if enforced_style == "explicit" {
+            // Explicit style: flag anonymous block params (`&` without name)
+            // If the param has a name, it's already explicit — no offense
+            if block_param.name().is_some() {
+                return;
+            }
+
+            let loc = block_param.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            let block_forwarding_name = config.get_str("BlockForwardingName", "block");
+
+            // Check if the block forwarding name is already used as a parameter name
+            let name_in_use = Self::block_forwarding_name_in_use(&def_node, block_forwarding_name);
+
+            // Offense on the parameter
+            let mut param_diag = self.diagnostic(
+                source,
+                line,
+                column,
+                "Use explicit block forwarding.".to_string(),
+            );
+            if let Some(ref mut corr) = corrections {
+                if !name_in_use {
+                    corr.push(crate::correction::Correction {
+                        start: loc.start_offset(),
+                        end: loc.end_offset(),
+                        replacement: format!("&{}", block_forwarding_name),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    param_diag.corrected = true;
+                }
+            }
+            diagnostics.push(param_diag);
+
+            // Find anonymous block passes in the body
+            let mut finder = AnonBlockPassFinder {
+                locations: Vec::new(),
+            };
+            if let Some(body) = def_node.body() {
+                finder.visit(&body);
+            }
+
+            for (start, end) in &finder.locations {
+                let (line, column) = source.offset_to_line_col(*start);
+                let mut fwd_diag = self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use explicit block forwarding.".to_string(),
+                );
+                if let Some(ref mut corr) = corrections {
+                    if !name_in_use {
+                        corr.push(crate::correction::Correction {
+                            start: *start,
+                            end: *end,
+                            replacement: format!("&{}", block_forwarding_name),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        fwd_diag.corrected = true;
+                    }
+                }
+                diagnostics.push(fwd_diag);
+            }
+
+            return;
+        }
+
+        // Anonymous style (default): flag explicit block params that can be anonymous
 
         // If the block param has no name (already anonymous &), skip
         let param_name = match block_param.name() {
@@ -261,6 +339,68 @@ impl Cop for BlockForwarding {
                 diagnostics.push(fwd_diag);
             }
         }
+    }
+}
+
+impl BlockForwarding {
+    /// Check if the block forwarding name (e.g., "block") is already used as a
+    /// parameter name in this method definition.
+    fn block_forwarding_name_in_use(def_node: &ruby_prism::DefNode<'_>, name: &str) -> bool {
+        let params = match def_node.parameters() {
+            Some(p) => p,
+            None => return false,
+        };
+        let name_bytes = name.as_bytes();
+        for req in params.requireds().iter() {
+            if let Some(rp) = req.as_required_parameter_node() {
+                if rp.name().as_slice() == name_bytes {
+                    return true;
+                }
+            }
+        }
+        for opt in params.optionals().iter() {
+            if let Some(op) = opt.as_optional_parameter_node() {
+                if op.name().as_slice() == name_bytes {
+                    return true;
+                }
+            }
+        }
+        if let Some(rest) = params.rest() {
+            if let Some(rp) = rest.as_rest_parameter_node() {
+                if let Some(n) = rp.name() {
+                    if n.as_slice() == name_bytes {
+                        return true;
+                    }
+                }
+            }
+        }
+        for post in params.posts().iter() {
+            if let Some(rp) = post.as_required_parameter_node() {
+                if rp.name().as_slice() == name_bytes {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+/// Finds anonymous block pass nodes (`&` with no expression) in the body.
+struct AnonBlockPassFinder {
+    locations: Vec<(usize, usize)>,
+}
+
+impl<'pr> Visit<'pr> for AnonBlockPassFinder {
+    fn visit_block_argument_node(&mut self, node: &ruby_prism::BlockArgumentNode<'pr>) {
+        // Anonymous block pass: `&` with no expression child
+        if node.expression().is_none() {
+            let loc = node.location();
+            self.locations.push((loc.start_offset(), loc.end_offset()));
+        }
+    }
+
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
+        // Don't traverse into nested defs — they have their own block context
     }
 }
 
@@ -423,6 +563,40 @@ mod tests {
 
     crate::cop_fixture_tests!(BlockForwarding, "cops/naming/block_forwarding");
     crate::cop_autocorrect_fixture_tests!(BlockForwarding, "cops/naming/block_forwarding");
+
+    fn explicit_config() -> crate::cop::CopConfig {
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("explicit".to_string()),
+        );
+        crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_explicit() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &BlockForwarding,
+            include_bytes!(
+                "../../../tests/fixtures/cops/naming/block_forwarding/offense.explicit.rb"
+            ),
+            explicit_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_explicit() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &BlockForwarding,
+            include_bytes!(
+                "../../../tests/fixtures/cops/naming/block_forwarding/no_offense.explicit.rb"
+            ),
+            explicit_config(),
+        );
+    }
 
     #[test]
     fn autocorrect_simple_forwarding() {

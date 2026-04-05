@@ -21,6 +21,19 @@ use ruby_prism::Visit;
 /// plain-variable dynamic-send arguments, double-colon direct arguments, negated
 /// wrapper contexts, and `async { ... }[]` / `async def ... end` wrappers where RuboCop
 /// keeps the outer unsafe send ancestry.
+///
+/// Recent fixes (FP/FN alignment):
+/// - Ternaries inside call arguments are no longer blanket-suppressed by dotless/unsafe
+///   parent calls. RuboCop's `unsafe_method?` returns false for ternary nodes (except
+///   negation), so ternaries inside `format_elements(...)`, `ssl_request(...)`, etc. are
+///   now correctly flagged. Suppression remains for nil-method call arguments (e.g.,
+///   `instance_variable_set`) where the ancestor walk finds a nil-responding method.
+/// - Lambda bodies (`-> { ... }`) now reset `in_call_arguments` and increment `in_block`,
+///   matching RuboCop's AST where lambdas are `:block` type nodes. This fixes FNs for
+///   modifier-if patterns inside lambdas (e.g., `after_commit -> { foo.bar if foo }`).
+/// - `visit_assoc_node` no longer resets `in_unsafe_parent` for hash values, fixing FPs
+///   where `&&` inside lambda hash values of dotless calls (e.g.,
+///   `before_save :foo, if: -> { x && x.bar }`) was incorrectly flagged.
 pub struct SafeNavigation;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -577,6 +590,7 @@ impl Cop for SafeNavigation {
             in_double_colon_call_arguments: 0,
             in_and_clause_visit: 0,
             in_definition_argument_wrapper: 0,
+            in_nil_method_call_arguments: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -605,6 +619,7 @@ struct SafeNavVisitor<'a> {
     in_double_colon_call_arguments: usize,
     in_and_clause_visit: usize,
     in_definition_argument_wrapper: usize,
+    in_nil_method_call_arguments: usize,
 }
 
 impl<'a> SafeNavVisitor<'a> {
@@ -900,9 +915,40 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
     fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
         self.visit(&node.key());
-        self.with_reset_parent_operator_context(|this| {
-            this.visit(&node.value());
-        });
+        // Reset operator-level context for hash values, but preserve in_unsafe_parent
+        // so that `&&` inside hash values of dotless calls remains suppressed.
+        // RuboCop walks all send ancestors, so a dotless call like `before_save`
+        // suppresses `&&` even inside hash-value lambdas.
+        let saved_ternary = self.in_ternary_operator_parent;
+        let saved_assignment = self.in_assignment_or_operator_parent;
+        let saved_dotted = std::mem::take(&mut self.dotted_assignment_parent_starts);
+        self.in_ternary_operator_parent = 0;
+        self.in_assignment_or_operator_parent = 0;
+        self.visit(&node.value());
+        self.in_ternary_operator_parent = saved_ternary;
+        self.in_assignment_or_operator_parent = saved_assignment;
+        self.dotted_assignment_parent_starts = saved_dotted;
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        // Lambdas (`-> { ... }`) behave like blocks in RuboCop's AST: `&&` inside
+        // lambdas with block ancestors is skipped by `concat_nodes`. Reset
+        // `in_call_arguments` so modifier-if/ternary checks inside lambdas are not
+        // suppressed by the outer call context, while preserving `in_unsafe_parent`
+        // so that `&&` patterns remain correctly suppressed by dotless ancestors.
+        self.in_block += 1;
+        if self.in_call_arguments > 0 {
+            let saved_call_args = self.in_call_arguments;
+            let saved_nil_method = self.in_nil_method_call_arguments;
+            self.in_call_arguments = 0;
+            self.in_nil_method_call_arguments = 0;
+            ruby_prism::visit_lambda_node(self, node);
+            self.in_call_arguments = saved_call_args;
+            self.in_nil_method_call_arguments = saved_nil_method;
+        } else {
+            ruby_prism::visit_lambda_node(self, node);
+        }
+        self.in_block -= 1;
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
@@ -985,13 +1031,20 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             self.in_call_arguments += 1;
             let is_dynamic_send = Self::is_dynamic_send_call(node);
             let is_double_colon = SafeNavigation::is_double_colon_call(node);
+            let is_nil_method_args = is_nil_safe_call_ancestor;
             if is_dynamic_send {
                 self.in_dynamic_send_args += 1;
             }
             if is_double_colon {
                 self.in_double_colon_call_arguments += 1;
             }
+            if is_nil_method_args {
+                self.in_nil_method_call_arguments += 1;
+            }
             self.visit_arguments_node(&arguments);
+            if is_nil_method_args {
+                self.in_nil_method_call_arguments -= 1;
+            }
             if is_dynamic_send {
                 self.in_dynamic_send_args -= 1;
             }
@@ -1102,12 +1155,15 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
+            // RuboCop's `unsafe_method?` always returns false for ternary nodes
+            // (except negation), so ternaries are NOT suppressed by dotless/unsafe
+            // call ancestors. They are only suppressed by operator parents, nil-safe
+            // ancestors, block-pass arguments, and nil-method call arguments
+            // (where the ancestor walk finds a nil-responding method name).
             if (self.in_block_argument > 0 && self.in_block == 0)
                 || self.in_nil_safe_call_ancestor > 0
                 || self.in_ternary_operator_parent > 0
-                || (self.in_call_arguments > 0
-                    && ((self.in_unsafe_parent > 0 && self.in_assignment_or_operator_parent == 0)
-                        || self.in_dynamic_send_args > 0))
+                || self.in_nil_method_call_arguments > 0
             {
                 ruby_prism::visit_if_node(self, node);
                 return;
