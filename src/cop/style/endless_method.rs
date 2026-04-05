@@ -19,6 +19,21 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: return early for receiver-bearing `DefNode`s before applying the endless-method
 /// style checks.
+///
+/// ## Variant-style divergence (2026-04-05)
+///
+/// Default `allow_single_line` behavior matched the corpus, but the non-default
+/// `require_single_line` / `require_always` styles had large FN counts because
+/// nitrocop only re-checked existing endless methods and never flagged regular
+/// `def .. end` bodies that RuboCop converts to endless form.
+///
+/// RuboCop's `can_be_made_endless?` works on parser AST bodies, while Prism
+/// wraps method bodies in a `StatementsNode`. The equivalent Prism condition is:
+/// exactly one body statement, and that single statement is not an explicit
+/// `begin .. end` body. The fix implements that mapping, preserves the existing
+/// multiline endless-method checks, and honors `MaxLineLength` /
+/// `LineLengthEnabled` when the endless replacement would be too long (including
+/// `private def ...` / `protected def ...` prefixes on the same line).
 pub struct EndlessMethod;
 
 impl EndlessMethod {
@@ -59,6 +74,102 @@ impl EndlessMethod {
             i += 1;
         }
         false
+    }
+
+    fn is_single_line(source: &SourceFile, loc: &ruby_prism::Location<'_>) -> bool {
+        let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+        let (end_line, _) = source.offset_to_line_col(loc.end_offset());
+        start_line == end_line
+    }
+
+    fn single_body_statement(body: ruby_prism::Node<'_>) -> Option<ruby_prism::Node<'_>> {
+        if let Some(stmts) = body.as_statements_node() {
+            let body_nodes: Vec<_> = stmts.body().iter().collect();
+            if body_nodes.len() == 1 {
+                body_nodes.into_iter().next()
+            } else {
+                None
+            }
+        } else {
+            Some(body)
+        }
+    }
+
+    fn can_be_made_endless(def_node: &ruby_prism::DefNode<'_>) -> bool {
+        let Some(body) = def_node.body() else {
+            return false;
+        };
+        let Some(stmt) = Self::single_body_statement(body) else {
+            return false;
+        };
+        stmt.as_begin_node().is_none()
+    }
+
+    fn arguments_source(source: &SourceFile, def_node: &ruby_prism::DefNode<'_>) -> String {
+        let Some(params) = def_node.parameters() else {
+            return String::new();
+        };
+
+        if let (Some(lparen), Some(rparen)) = (def_node.lparen_loc(), def_node.rparen_loc()) {
+            return source
+                .byte_slice(lparen.start_offset(), rparen.end_offset(), "")
+                .to_string();
+        }
+
+        let params_loc = params.location();
+        let params_src = source.byte_slice(params_loc.start_offset(), params_loc.end_offset(), "");
+        if params_src.is_empty() {
+            String::new()
+        } else {
+            format!(" {params_src}")
+        }
+    }
+
+    fn endless_replacement_length(
+        source: &SourceFile,
+        def_node: &ruby_prism::DefNode<'_>,
+    ) -> usize {
+        let body = match def_node.body() {
+            Some(body) => body,
+            None => return 0,
+        };
+        let body_loc = body.location();
+        let body_src = source.byte_slice(body_loc.start_offset(), body_loc.end_offset(), "");
+        let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+        let arguments = Self::arguments_source(source, def_node);
+
+        "def ".chars().count()
+            + method_name.chars().count()
+            + arguments.chars().count()
+            + " = ".chars().count()
+            + body_src.chars().count()
+    }
+
+    fn modifier_offset(source: &SourceFile, def_node: &ruby_prism::DefNode<'_>) -> usize {
+        let def_loc = def_node.def_keyword_loc();
+        let (line, _) = source.offset_to_line_col(def_loc.start_offset());
+        let line_start = source.line_start_offset(line);
+        let prefix = source.byte_slice(line_start, def_loc.start_offset(), "");
+        let trimmed = prefix.trim_start_matches(char::is_whitespace);
+        if trimmed.is_empty() {
+            0
+        } else {
+            trimmed.chars().count()
+        }
+    }
+
+    fn too_long_when_made_endless(
+        source: &SourceFile,
+        def_node: &ruby_prism::DefNode<'_>,
+        config: &CopConfig,
+    ) -> bool {
+        if !config.get_bool("LineLengthEnabled", true) {
+            return false;
+        }
+
+        let max_line_length = config.get_usize("MaxLineLength", 120);
+        Self::endless_replacement_length(source, def_node) + Self::modifier_offset(source, def_node)
+            > max_line_length
     }
 }
 
@@ -117,8 +228,6 @@ impl Cop for EndlessMethod {
         }
 
         let style = config.get_str("EnforcedStyle", "allow_single_line");
-
-        // Check if this is an endless method (has = sign, no end keyword)
         let is_endless = def_node.end_keyword_loc().is_none() && def_node.equal_loc().is_some();
 
         match style {
@@ -137,9 +246,7 @@ impl Cop for EndlessMethod {
             "allow_single_line" => {
                 if is_endless {
                     let loc = def_node.location();
-                    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
-                    let (end_line, _) = source.offset_to_line_col(loc.end_offset());
-                    if end_line > start_line {
+                    if !Self::is_single_line(source, &loc) {
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
                             source,
@@ -153,15 +260,10 @@ impl Cop for EndlessMethod {
             "allow_always" => {
                 // No offenses for endless methods
             }
-            "require_single_line" | "require_always" => {
-                // These styles want endless methods to be used
-                // We skip enforcement of "use endless" to keep this simple
-                // and focus on the "avoid" cases
+            "require_single_line" => {
                 if is_endless {
                     let loc = def_node.location();
-                    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
-                    let (end_line, _) = source.offset_to_line_col(loc.end_offset());
-                    if end_line > start_line && style == "require_single_line" {
+                    if !Self::is_single_line(source, &loc) {
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
                             source,
@@ -170,6 +272,35 @@ impl Cop for EndlessMethod {
                             "Avoid endless method definitions with multiple lines.".to_string(),
                         ));
                     }
+                } else if Self::can_be_made_endless(&def_node)
+                    && def_node
+                        .body()
+                        .is_some_and(|body| Self::is_single_line(source, &body.location()))
+                    && !Self::too_long_when_made_endless(source, &def_node, config)
+                {
+                    let loc = def_node.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use endless method definitions for single line methods.".to_string(),
+                    ));
+                }
+            }
+            "require_always" => {
+                if !is_endless
+                    && Self::can_be_made_endless(&def_node)
+                    && !Self::too_long_when_made_endless(source, &def_node, config)
+                {
+                    let loc = def_node.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use endless method definitions.".to_string(),
+                    ));
                 }
             }
             _ => {}
@@ -181,12 +312,35 @@ impl Cop for EndlessMethod {
 mod tests {
     use super::*;
     use crate::cop::CopConfig;
+    use crate::testutil::run_cop_full_with_config;
 
     fn ruby30_config() -> CopConfig {
         let mut config = CopConfig::default();
         config.options.insert(
             "TargetRubyVersion".to_string(),
             serde_yml::Value::Number(serde_yml::Number::from(3.0)),
+        );
+        config
+    }
+
+    fn ruby30_style_config(style: &str) -> CopConfig {
+        let mut config = ruby30_config();
+        config.options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String(style.to_string()),
+        );
+        config
+    }
+
+    fn ruby30_style_with_line_length(style: &str, max: u64, enabled: bool) -> CopConfig {
+        let mut config = ruby30_style_config(style);
+        config.options.insert(
+            "MaxLineLength".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(max)),
+        );
+        config.options.insert(
+            "LineLengthEnabled".to_string(),
+            serde_yml::Value::Bool(enabled),
         );
         config
     }
@@ -206,6 +360,98 @@ mod tests {
             &EndlessMethod,
             include_bytes!("../../../tests/fixtures/cops/style/endless_method/no_offense.rb"),
             ruby30_config(),
+        );
+    }
+
+    #[test]
+    fn require_single_line_offense() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &EndlessMethod,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/endless_method/require_single_line_offense.rb"
+            ),
+            ruby30_style_config("require_single_line"),
+        );
+    }
+
+    #[test]
+    fn require_single_line_no_offense() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &EndlessMethod,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/endless_method/require_single_line_no_offense.rb"
+            ),
+            ruby30_style_config("require_single_line"),
+        );
+    }
+
+    #[test]
+    fn require_always_offense() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &EndlessMethod,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/endless_method/require_always_offense.rb"
+            ),
+            ruby30_style_config("require_always"),
+        );
+    }
+
+    #[test]
+    fn require_always_no_offense() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &EndlessMethod,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/endless_method/require_always_no_offense.rb"
+            ),
+            ruby30_style_config("require_always"),
+        );
+    }
+
+    #[test]
+    fn require_single_line_respects_line_length() {
+        let source =
+            b"def my_method\n  'this_string_ends_at_column_75_________________________________________'\nend\n";
+        let diags = run_cop_full_with_config(
+            &EndlessMethod,
+            source,
+            ruby30_style_with_line_length("require_single_line", 80, true),
+        );
+        assert!(
+            diags.is_empty(),
+            "Endless replacement exceeding MaxLineLength should be skipped, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn require_single_line_ignores_line_length_when_disabled() {
+        let source =
+            b"def my_method\n  'this_string_ends_at_column_75_________________________________________'\nend\n";
+        let diags = run_cop_full_with_config(
+            &EndlessMethod,
+            source,
+            ruby30_style_with_line_length("require_single_line", 80, false),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].message,
+            "Use endless method definitions for single line methods."
+        );
+    }
+
+    #[test]
+    fn require_single_line_flags_access_modifier_def() {
+        let source = b"private def my_method\n  x\nend\n";
+        let diags = run_cop_full_with_config(
+            &EndlessMethod,
+            source,
+            ruby30_style_config("require_single_line"),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 8);
+        assert_eq!(
+            diags[0].message,
+            "Use endless method definitions for single line methods."
         );
     }
 }
