@@ -15,14 +15,13 @@ use crate::parse::source::SourceFile;
 /// conditions with aligned style, alignment with `left_col` or double-width
 /// `kw_expected` are accepted.
 ///
-/// Key fix (2026-04-04): CallNode (`+`, `-`, etc.) now delegates to
-/// `check_binary_node` with `accept_left_alignment=true`. This adds
-/// assignment/keyword context awareness (fixing FN where RuboCop requires
-/// alignment but old code accepted wrong indentation), while accepting
-/// same-column alignment as a fallback for operator calls. The fallback
-/// is needed because RuboCop's `argument_in_method_call` (which requires
-/// AST parent traversal) accepts alignment in method-arg and nested-if
-/// contexts that we cannot detect from Prism without parent pointers.
+/// Key fix (2026-04-04): restructured the `accept_left_alignment`
+/// branch for CallNode operators (`+`, `-`, etc.) to pass the
+/// operator name through and add heuristic checks that approximate
+/// RuboCop's `argument_in_method_call` (which needs AST parent
+/// pointers we don't have). Same-column alignment is still accepted
+/// as a safe fallback to avoid false positives until parent pointer
+/// support is added.
 pub struct MultilineOperationIndentation;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
