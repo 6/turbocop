@@ -133,10 +133,17 @@ def render_comment(rows: list[dict], overall_result: str) -> str:
     return "\n".join(lines)
 
 
+def has_variant_regressions(rows: list[dict]) -> bool:
+    """Check if any aggregated variant row has a regression."""
+    return any(r["result"] == "regression" for r in rows if is_variant_row(r["cop"]))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Render cop-check PR comment")
     parser.add_argument("--summaries-dir", required=True, type=Path)
     parser.add_argument("--result", required=True, choices=["pass", "fail", "skip", "cancelled"])
+    parser.add_argument("--check-variant-regressions", action="store_true",
+                        help="Exit non-zero if any variant regression is detected")
     args = parser.parse_args()
 
     if not args.summaries_dir.exists():
@@ -145,8 +152,21 @@ def main():
         raw_rows = parse_summary_lines(args.summaries_dir)
         rows = aggregate_rows(raw_rows)
 
-    comment = render_comment(rows, args.result)
+    # If default gate passed but variants regressed, override result
+    effective_result = args.result
+    if args.result == "pass" and has_variant_regressions(rows):
+        effective_result = "fail"
+
+    comment = render_comment(rows, effective_result)
     print(comment)
+
+    if args.check_variant_regressions and has_variant_regressions(rows):
+        import sys
+        print(
+            "ERROR: variant style regressions detected",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

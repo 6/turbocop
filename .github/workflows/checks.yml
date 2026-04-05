@@ -265,18 +265,31 @@ jobs:
           merge-multiple: true
         continue-on-error: true
 
+      - uses: actions/checkout@v6
+        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
+
       - name: Comment cop-check summary on PR
+        id: comment
         if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           SUMMARIES_DIR="summaries"
           [ ! -d "$SUMMARIES_DIR" ] && SUMMARIES_DIR="/dev/null"
+          # Render comment to file first (always succeeds)
           python3 scripts/workflows/render_cop_check_comment.py \
             --summaries-dir "$SUMMARIES_DIR" \
             --result "${{ steps.gate.outputs.result }}" \
-            | gh pr comment "${{ github.event.pull_request.number }}" \
-              --repo "${{ github.repository }}" --body-file -
+            > /tmp/cop-check-comment.md
+          # Post the comment
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file /tmp/cop-check-comment.md
+          # Now check for variant regressions (fails the step if found)
+          python3 scripts/workflows/render_cop_check_comment.py \
+            --summaries-dir "$SUMMARIES_DIR" \
+            --result "${{ steps.gate.outputs.result }}" \
+            --check-variant-regressions > /dev/null
 
   # Corpus smoke test: run nitrocop + rubocop on a few cheap sentinel repos to
   # catch systemic regressions (file discovery, config, plugin loading, directives)

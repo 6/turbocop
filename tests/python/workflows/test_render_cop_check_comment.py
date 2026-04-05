@@ -79,6 +79,30 @@ def test_render_comment_shows_regression():
     assert "❌" in comment  # regression row
 
 
+def test_has_variant_regressions_true():
+    rows = [
+        {"cop": "Style/Foo", "result": "pass"},
+        {"cop": "Style/Foo (comma)", "result": "regression"},
+    ]
+    assert mod.has_variant_regressions(rows) is True
+
+
+def test_has_variant_regressions_false():
+    rows = [
+        {"cop": "Style/Foo", "result": "pass"},
+        {"cop": "Style/Foo (comma)", "result": "pass"},
+    ]
+    assert mod.has_variant_regressions(rows) is False
+
+
+def test_has_variant_regressions_ignores_default_failures():
+    """Default row failures don't count as variant regressions."""
+    rows = [
+        {"cop": "Style/Foo", "result": "fail"},
+    ]
+    assert mod.has_variant_regressions(rows) is False
+
+
 def test_parse_summary_lines(tmp_path):
     f = tmp_path / "shard-0.txt"
     f.write_text("Style/Foo|3|0|2|0|pass|3|0\nStyle/Foo (bar)|10|5|100|20|pass|0|0\n")
