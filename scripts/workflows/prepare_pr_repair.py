@@ -297,8 +297,10 @@ def classify_run(run: dict, fix_backend: str = "") -> dict:
         "backend": backend,
         "guard_profile": determine_guard_profile(route, jobs),
         "cop_check_failure": any(
-            any(_normalize_step_name(s) == "Check cops against corpus baseline"
-                for s in job.get("failed_step_names", []))
+            any(_normalize_step_name(s) in (
+                "Check cops against corpus baseline",
+                "Comment cop-check summary on PR",
+            ) for s in job.get("failed_step_names", []))
             for job in jobs
         ),
         "jobs": jobs,
@@ -351,6 +353,104 @@ def excerpt_diff(diff_text: str, max_lines: int = 220) -> str:
     return "\n".join(lines)
 
 
+def extract_cop_from_title(title: str) -> str | None:
+    """Extract cop name from PR title like '[bot] Fix Style/FrozenStringLiteralComment'."""
+    m = re.search(r"Fix\s+(\w+/\w+)", title)
+    return m.group(1) if m else None
+
+
+def build_variant_context(cop: str, binary: Path | None = None) -> str:
+    """Build variant divergence context for the repair prompt.
+
+    Includes the variant table, fix instructions, and a quick local
+    spot-check showing example FP/FN for the worst variant style.
+
+    Returns markdown section or empty string if no variant data.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from dispatch_cops import load_variant_data_for_cop
+
+    variants = load_variant_data_for_cop(cop)
+    diverging = [v for v in variants if v["fp"] + v["fn"] > 0]
+    if not diverging:
+        return ""
+
+    lines = [
+        "## Variant Style Regression",
+        "",
+        "**This repair was triggered by a variant style regression.** The cop's default config "
+        "is correct, but non-default `EnforcedStyle` values produce extra FP/FN:",
+        "",
+        "| Style | Matches | FP | FN |",
+        "|-------|--------:|---:|---:|",
+    ]
+    for v in sorted(diverging, key=lambda x: x["fp"] + x["fn"], reverse=True):
+        lines.append(f"| {v['style_label']} | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} |")
+
+    # Run a quick spot-check for the worst variant to get concrete examples
+    worst = sorted(diverging, key=lambda x: x["fp"] + x["fn"], reverse=True)[0]
+    worst_style = worst["style_label"]
+    lines.extend([
+        "",
+        f"### Worst variant: `{worst_style}` ({worst['fp']:,} FP, {worst['fn']:,} FN)",
+        "",
+        "To reproduce locally and see concrete examples:",
+        "",
+        "```bash",
+        "# Quick spot-check: run nitrocop vs rubocop with the variant style",
+        f"python3 scripts/check_cop.py {cop} --verbose --rerun --clone --sample 5 \\",
+        f"  --style EnforcedStyle={worst_style}",
+        "```",
+        "",
+    ])
+
+    # If we have a binary, try running a quick comparison to get example output
+    if binary and binary.exists():
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable, "scripts/check_cop.py", cop,
+                    "--verbose", "--rerun", "--clone", "--sample", "3",
+                    "--style", f"EnforcedStyle={worst_style}",
+                ],
+                capture_output=True, text=True, timeout=120,
+                env={**__import__("os").environ, "NITROCOP_BIN": str(binary)},
+            )
+            output = result.stdout + result.stderr
+            # Extract the useful parts (repos with offenses, excess/missing counts)
+            useful_lines = []
+            for line in output.splitlines():
+                if any(x in line for x in [
+                    "Repos with offenses", "Excess", "Missing", "Results:",
+                    "Expected", "Actual", "CI nitrocop",
+                ]):
+                    useful_lines.append(line)
+            if useful_lines:
+                lines.extend([
+                    "### Spot-check output",
+                    "",
+                    "```",
+                    *useful_lines[:20],
+                    "```",
+                    "",
+                ])
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    lines.extend([
+        "### How to fix",
+        "",
+        "1. Find the config read: look for `config.get_str(\"EnforcedStyle\", ...)` in the Rust source",
+        "2. Check the RuboCop Ruby source for how each style value changes behavior",
+        "3. Add fixture tests with `# nitrocop-config: EnforcedStyle: <value>` directive",
+        f"4. Validate: `python3 scripts/check_cop.py {cop} --rerun --clone --sample 15 "
+        f"--style EnforcedStyle={worst_style}`",
+        "5. All variants must pass — the CI gate runs all variant styles automatically",
+        "",
+    ])
+    return "\n".join(lines)
+
+
 def prefetch_corpus_context(route: str) -> dict[str, str]:
     if route != "hard":
         return {}
@@ -374,6 +474,7 @@ def build_prompt(
     diff_text: str,
     extra_context: str,
     corpus_context: dict[str, dict[str, str]] | None = None,
+    variant_context: str = "",
 ) -> str:
     route = classification["route"]
     backend = classification["backend"] or "none"
@@ -494,6 +595,9 @@ def build_prompt(
             "",
         ])
 
+    if variant_context:
+        lines.append(variant_context)
+
     lines.extend([
         "## Constraints",
         "",
@@ -553,6 +657,16 @@ def main() -> None:
 
     corpus_context = prefetch_corpus_context(classification["route"])
 
+    # Build variant context for cop-check failures on cop-fix PRs
+    vc = ""
+    if classification.get("cop_check_failure"):
+        cop = extract_cop_from_title(args.pr_title)
+        if cop:
+            print(f"Building variant context for {cop}...", file=sys.stderr)
+            vc = build_variant_context(cop)
+            if vc:
+                print(f"  Included variant divergence data for {cop}", file=sys.stderr)
+
     pr_meta = {
         "number": args.pr_number,
         "title": args.pr_title,
@@ -567,6 +681,7 @@ def main() -> None:
         diff_text=args.diff.read_text() if args.diff.exists() else "",
         extra_context=args.extra_context,
         corpus_context=corpus_context,
+        variant_context=vc,
     )
     verify_script = build_verification_script(classification["verification_commands"])
 
