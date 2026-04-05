@@ -36,14 +36,6 @@ use crate::parse::source::SourceFile;
 /// separately: xstr embedded statements don't set `in_interpolation`, but
 /// entering a nested `InterpolatedStringNode` resets `in_xstr` so its
 /// embedded statements correctly set `in_interpolation`.
-///
-/// ## Investigation findings (2026-04-05)
-///
-/// **FPs (4):** Multiline string literals inside interpolation. RuboCop's
-/// `parser` gem represents multiline strings as `dstr` nodes whose `str` parts
-/// lack `loc.begin`, so `on_str` skips them via `return unless node.loc?(:begin)`.
-/// Prism keeps them as a single `StringNode` with `opening_loc`, causing FPs.
-/// Fixed by skipping `StringNode`s that span multiple lines.
 pub struct StringLiteralsInInterpolation;
 
 impl Cop for StringLiteralsInInterpolation {
@@ -126,17 +118,6 @@ impl<'pr> Visit<'pr> for InterpStringVisitor<'_> {
             Some(o) => o,
             None => return,
         };
-
-        // Skip multiline string literals. RuboCop's parser gem represents these
-        // as dstr nodes whose str parts lack loc.begin, so they're never checked.
-        // Prism keeps them as a single StringNode with opening_loc, causing FPs.
-        let loc = node.location();
-        let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
-        let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
-        let (end_line, _) = self.source.offset_to_line_col(end_off);
-        if start_line != end_line {
-            return;
-        }
 
         let open_bytes = opening.as_slice();
 
