@@ -199,9 +199,9 @@ def test_summary_recalculation():
     # 500 + 400 + 15 + 3 = 918 matches
     assert s["matches"] == 918
     # 0 + 40 + 2 + 0 = 42 FP
-    assert s["total_fp"] == 42
+    assert s["fp"] == 42
     # 0 + 60 + 1 + 0 = 61 FN
-    assert s["total_fn"] == 61
+    assert s["fn"] == 61
     assert s["exercised_cops"] == 4  # all 4 now exercised
     assert s["perfect_cops"] == 2  # FSLC + ThreeState
     assert s["diverging_cops"] == 2  # StringLiterals + ReversibleMigration

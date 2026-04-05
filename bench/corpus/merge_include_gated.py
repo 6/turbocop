@@ -174,8 +174,8 @@ def _rebuild_summary(main: dict) -> None:
     summary = main["summary"]
     summary["total_offenses_compared"] = oracle_total
     summary["matches"] = total_matches
-    summary["total_fp"] = total_fp
-    summary["total_fn"] = total_fn
+    summary["fp"] = total_fp
+    summary["fn"] = total_fn
     summary["overall_match_rate"] = trunc4(overall_rate)
     summary["registered_cops"] = registered
     summary["exercised_cops"] = exercised
