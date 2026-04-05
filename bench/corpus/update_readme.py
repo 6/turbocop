@@ -336,14 +336,7 @@ def update_readme(readme_text: str, data: dict, synthetic: dict[str, dict] | Non
     """Replace conformance data in README text."""
     summary = data["summary"]
     total_repos = summary["total_repos"]
-    matches = summary["matches"]
-    fp = summary["fp"]
-    fn = summary["fn"]
-    total = matches + fp + fn
-    conformance_rate = matches / total if total > 0 else 0.0
     files = summary.get("total_files_inspected", 0)
-
-    rate_str = format_match_rate(conformance_rate)
     files_str = format_files(files) if files > 0 else None
 
     # 0. Generated Cops section between explicit markers
@@ -354,7 +347,7 @@ def update_readme(readme_text: str, data: dict, synthetic: dict[str, dict] | Non
         build_cops_section(data, synthetic),
     )
 
-    # 1. Features bullet: **N cops** and **XX.X% conformance**
+    # 1. Features bullet: cops count
     total_cops = summary.get("registered_cops", 0)
     if total_cops > 0:
         readme_text = re.sub(
@@ -362,13 +355,27 @@ def update_readme(readme_text: str, data: dict, synthetic: dict[str, dict] | Non
             f"**{total_cops:,} cops**",
             readme_text,
         )
+
+    # 2. Corpus bullet: tested on N repos, X of Y cops match exactly
+    perfect_cops = summary.get("perfect_cops", 0)
+    variant_perfect = sum(
+        d.get("variant_perfect_cops") or 0
+        for d in data.get("by_department", [])
+    )
+    new_corpus_bullet = (
+        f"Tested on [**{total_repos:,} open-source repos**](docs/corpus.md): "
+        f"**{perfect_cops:,} of {total_cops:,} cops match RuboCop exactly** (default config)"
+    )
+    if variant_perfect > 0 and variant_perfect < perfect_cops:
+        new_corpus_bullet += f", **{variant_perfect:,}** across all style variants"
     readme_text = re.sub(
-        r"\*\*[\d.]+% conformance\*\*",
-        f"**{rate_str} conformance**",
+        r"- .+open-source repos.+\n",
+        f"- {new_corpus_bullet}\n",
         readme_text,
+        count=1,
     )
 
-    # 2. Repo count: update all "N open-source repos" occurrences
+    # 3. Repo count in other places
     readme_text = re.sub(
         r"[\d,]+ open-source repos",
         f"{total_repos:,} open-source repos",
