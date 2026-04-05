@@ -40,6 +40,21 @@ use crate::parse::source::SourceFile;
 /// nodes in if/else branches compare as equal — a quirk we don't replicate),
 /// 1 may be from config resolution differences.
 ///
+/// ## Style variant fix (2026-04-05)
+/// Default style had 0 FP, 0 FN. Non-default style variants had divergence:
+/// - `required`: 168 FP, 6 FN
+/// - `optional`: 17 FP, 0 FN
+///
+/// Root cause: For methods starting with `_` (e.g., `def _foo`), the matching
+/// logic didn't replicate RuboCop's `variable_name_candidates` correctly.
+/// RuboCop's candidates for method_name `_foo`:
+/// - `required`: `["__foo", "_foo"]` — also accepts the method name itself
+/// - `optional`: `["_foo", "__foo", "foo"]` — also accepts the underscore-stripped form
+///
+/// Nitrocop was too strict: `required` only accepted `@__foo`, `optional` didn't
+/// accept `@foo` for `def _foo`. Fix: extracted `ivar_matches_method()` helper
+/// that replicates RuboCop's candidate logic for all three styles.
+///
 /// ## Investigation (2026-03-09, regression fix)
 /// Corpus oracle reported FP=3, FN=1 (previously 0 FP).
 ///
@@ -155,26 +170,7 @@ impl MemoizedInstanceVariableName {
         let ivar_str = std::str::from_utf8(ivar_name).unwrap_or("");
         let ivar_base = ivar_str.strip_prefix('@').unwrap_or(ivar_str);
 
-        let matches = match leading_underscore_style {
-            "required" => {
-                // @_method_name is the only valid form
-                let expected = format!("_{base_name}");
-                ivar_base == expected
-            }
-            "optional" => {
-                // Both @method_name and @_method_name are valid
-                let with_underscore = format!("_{base_name}");
-                ivar_base == base_name || ivar_base == with_underscore
-            }
-            _ => {
-                // "disallowed" (default): @method_name or @method_name_without_leading_underscore
-                // RuboCop's variable_name_candidates returns [method_name, no_underscore]
-                ivar_base == base_name
-                    || base_name
-                        .strip_prefix('_')
-                        .is_some_and(|stripped| ivar_base == stripped)
-            }
-        };
+        let matches = ivar_matches_method(ivar_base, base_name, leading_underscore_style);
 
         if !matches {
             let loc = or_write.name_loc();
@@ -324,23 +320,7 @@ impl MemoizedInstanceVariableName {
         method_name_str: &str,
         enforced_style: &str,
     ) -> Vec<Diagnostic> {
-        let matches = match enforced_style {
-            "required" => {
-                let expected = format!("_{base_name}");
-                ivar_base == expected
-            }
-            "optional" => {
-                let with_underscore = format!("_{base_name}");
-                ivar_base == base_name || ivar_base == with_underscore
-            }
-            _ => {
-                // "disallowed" (default): @method_name or @method_name_without_leading_underscore
-                ivar_base == base_name
-                    || base_name
-                        .strip_prefix('_')
-                        .is_some_and(|stripped| ivar_base == stripped)
-            }
-        };
+        let matches = ivar_matches_method(ivar_base, base_name, enforced_style);
 
         if matches {
             return Vec::new();
@@ -415,6 +395,36 @@ impl MemoizedInstanceVariableName {
         }
 
         diags
+    }
+}
+
+/// Check if an ivar name matches a method name according to the given style.
+/// Replicates RuboCop's `variable_name_candidates` logic:
+///
+/// - `disallowed`: candidates = [method_name, method_name.delete_prefix('_')]
+/// - `required`:   candidates = ["_#{method_name}", method_name if starts with '_']
+/// - `optional`:   candidates = [method_name, "_#{method_name}", method_name.delete_prefix('_')]
+fn ivar_matches_method(ivar_base: &str, base_name: &str, style: &str) -> bool {
+    match style {
+        "required" => {
+            let expected = format!("_{base_name}");
+            ivar_base == expected || (base_name.starts_with('_') && ivar_base == base_name)
+        }
+        "optional" => {
+            let with_underscore = format!("_{base_name}");
+            ivar_base == base_name
+                || ivar_base == with_underscore
+                || base_name
+                    .strip_prefix('_')
+                    .is_some_and(|stripped| ivar_base == stripped)
+        }
+        _ => {
+            // "disallowed" (default): @method_name or @method_name_without_leading_underscore
+            ivar_base == base_name
+                || base_name
+                    .strip_prefix('_')
+                    .is_some_and(|stripped| ivar_base == stripped)
+        }
     }
 }
 
@@ -1013,6 +1023,88 @@ mod tests {
             diags.len(),
             1,
             "Should flag @script ||= in method with block calls before it"
+        );
+    }
+
+    #[test]
+    fn required_style_allows_underscore_method_with_matching_ivar() {
+        // FP fix: `def _foo` with `@_foo ||= ...` should be no offense in required style.
+        // RuboCop candidates for "_foo" in required: ["__foo", "_foo"]
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyleForLeadingUnderscores".to_string(),
+                serde_yml::Value::String("required".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"def _foo\n  @_foo ||= compute\nend\n";
+        assert_cop_no_offenses_full_with_config(&MemoizedInstanceVariableName, source, config);
+    }
+
+    #[test]
+    fn required_style_flags_underscore_method_with_mismatched_ivar() {
+        // `def _foo` with `@_bar ||= ...` should still be offense in required style.
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyleForLeadingUnderscores".to_string(),
+                serde_yml::Value::String("required".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"def _foo\n  @_bar ||= compute\nend\n";
+        let diags = run_cop_full_with_config(&MemoizedInstanceVariableName, source, config);
+        assert!(
+            !diags.is_empty(),
+            "required style should flag @_bar for def _foo"
+        );
+    }
+
+    #[test]
+    fn optional_style_allows_underscore_method_with_stripped_ivar() {
+        // FP fix: `def _foo` with `@foo ||= ...` should be no offense in optional style.
+        // RuboCop candidates for "_foo" in optional: ["_foo", "__foo", "foo"]
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyleForLeadingUnderscores".to_string(),
+                serde_yml::Value::String("optional".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"def _foo\n  @foo ||= compute\nend\n";
+        assert_cop_no_offenses_full_with_config(&MemoizedInstanceVariableName, source, config);
+    }
+
+    #[test]
+    fn optional_style_flags_underscore_method_with_mismatched_ivar() {
+        // `def _foo` with `@bar ||= ...` should still be offense in optional style.
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyleForLeadingUnderscores".to_string(),
+                serde_yml::Value::String("optional".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"def _foo\n  @bar ||= compute\nend\n";
+        let diags = run_cop_full_with_config(&MemoizedInstanceVariableName, source, config);
+        assert!(
+            !diags.is_empty(),
+            "optional style should flag @bar for def _foo"
         );
     }
 
